@@ -38,10 +38,15 @@ if [ "$1" = "call" ]; then
 
 		getClients)
 			TMP_SSID="/tmp/cm_ssid_$$.txt"
-			rm -f "$TMP_SSID"
-
 			TMP_WL="/tmp/cm_wl_$$.txt"
-			rm -f "$TMP_WL"
+			TMP_IP6="/tmp/cm_ip6_$$.txt"
+			TMP_UCI="/tmp/cm_uci_$$.txt"
+			TMP_META="/tmp/cm_meta_$$.txt"
+			TMP_FILE="/tmp/cm_clients_$$.json"
+
+			trap 'rm -f "$TMP_SSID" "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_META" "$TMP_FILE" 2>/dev/null' EXIT INT TERM
+			rm -f "$TMP_SSID" "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_META" "$TMP_FILE"
+
 			if command -v ubus >/dev/null 2>&1; then
 				# Method 1: iwinfo ubus
 				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
