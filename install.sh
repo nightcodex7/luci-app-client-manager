@@ -80,11 +80,11 @@ if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
     NEED_DNSMASQ_RELOAD=1
 fi
 
-echo "[5/5] Flushing LuCI cache and restarting RPC services..."
-# Clear LuCI index, module, and session ACL caches to force immediate privilege refresh
-rm -f /tmp/luci-indexcache /tmp/luci-modulecache* /tmp/luci-sessions/* 2>/dev/null || true
+echo "[5/5] Flushing LuCI index cache and restarting services..."
+# Clear LuCI index and module caches safely without touching session locks
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache* 2>/dev/null || true
 
-# Restart rpcd and uhttpd daemons so they re-scan /usr/libexec/rpcd/ and ACLs
+# Restart rpcd and uhttpd daemons cleanly
 /etc/init.d/rpcd restart
 /etc/init.d/uhttpd restart
 
@@ -94,6 +94,5 @@ fi
 
 echo "=================================================="
 echo " Installation complete!"
-echo " Please log out and log back into LuCI in your browser."
 echo " Access Client Manager in LuCI: Clients"
 echo "=================================================="

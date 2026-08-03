@@ -1,4 +1,4 @@
-#!/bin/usr/lua
+#!/usr/bin/lua
 
 ---------------------------------------------------------------------
 -- Robust JSON module loader
@@ -637,6 +637,7 @@ elseif arg[1] == "call" then
 		else
 			print(json.stringify({ error = "Execution failed" }))
 		end
+		collectgarbage("collect")
 	else
 		print(json.stringify({ error = "Method not found" }))
 	end
