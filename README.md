@@ -2,27 +2,50 @@
 
 [![OpenWrt Version](https://img.shields.io/badge/OpenWrt-21.02%20to%2025.12%2B-blue.svg)](https://openwrt.org)
 [![Backend](https://img.shields.io/badge/Backend-POSIX%20Shell-green.svg)](https://www.gnu.org/software/bash/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](Makefile)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-`luci-app-client-manager` is a lightweight, daemonless LuCI application for OpenWrt routers to discover, identify, monitor, and manage devices on your local network. It aggregates data from DHCP leases, ARP entries, IPv6 neighbor tables, and wireless association lists to present a fast, responsive device management dashboard.
+`luci-app-client-manager` is a lightweight, daemonless LuCI application for OpenWrt routers to discover, identify, monitor, and manage devices on your local network. It aggregates telemetry from DHCP leases, ARP entries, IPv6 neighbor tables, and wireless association lists to present a fast, responsive, theme-native device management suite.
 
 ---
 
-## Features
+## Screenshots
+
+### 📊 Client Dashboard
+![Client Dashboard](assets/dashboard.png)
+
+---
+
+### ⚡ Bandwidth Monitor & Speed Limiter
+![Bandwidth Monitor](assets/bandwidth.png)
+
+---
+
+### 🛡️ Firewall Internet Access Control
+![Firewall Control](assets/firewall.png)
+
+---
+
+### 📶 WiFi Access Control
+![WiFi Access Control](assets/wifiaccess.png)
+
+---
+
+## Key Features
 
 - **Device Dashboard**: Consolidates DHCP leases (`/tmp/dhcp.leases`), ARP table (`/proc/net/arp`), neighbor table (`ip neighbor`), and wireless associations into a unified device list.
 - **Dual-Stack IPv4 & IPv6**: Automatically discovers and displays both IPv4 and IPv6 addresses per device.
-- **Normalized Interface Column**: Displays interface and wireless telemetry as `InterfaceName(SSID(Frequency))` (e.g., `br-lan(SSID1(5.745 GHz))`).
-- **Clean Dropdown Filters**:
+- **Normalized Telemetry**: Displays interface and wireless telemetry as `InterfaceName(SSID(Frequency))` (e.g., `br-lan(SSID1(5.745 GHz))`).
+- **Dynamic Filtering & Sorting**:
   - Filter by IP type (IPv4 / IPv6 / Both).
   - Filter by Interface (Wired / Wireless / Specific local network bridges like `br-lan`, `br-guest`).
   - Filter by Lease type (Static / Dynamic).
   - Filter by Status (Online / Blocked).
-  - Automatically prioritizes connected devices, sorted numerically by IP address.
-- **Multi-Engine Wireless Telemetry**: Combines queries from `ubus iwinfo`, `hostapd` ubus daemons, and `iw station dump` to report signal levels (`dBm`), radio frequencies, and SSIDs across various Wi-Fi chipsets.
-- **Wi-Fi Access Control**: Toggle per-device MAC filtering on wireless interfaces directly via UCI wireless settings.
-- **Firewall Blocking**: Block or unblock internet access per device using OpenWrt `fw4` UCI firewall rules.
-- **Real-Time Bandwidth Monitoring**: Track active upload and download byte counters per device using `conntrack` without full page reloads.
+  - Prioritizes connected devices, sorted numerically by IP address (`ipToLong`).
+- **Bandwidth Speed Limiter**: Custom download/upload rate limits with selectable unit options (**Mbps**, **MBps**, **Kbps**, **KBps**). Includes low-memory hardware performance warnings with bypass support for resource-constrained routers (<128MB RAM).
+- **WiFi Access Control**: Manage per-SSID MAC filtering (`macfilter`) for connected clients or by entering any **Custom MAC Address**.
+- **Firewall Internet Control**: Easily block or unblock internet access per device using OpenWrt `fw4` firewall rule injection.
+- **Real-Time Bandwidth Monitoring**: Track active upload and download byte counters per device using `conntrack` with customizable refresh intervals (1s, 5s, 10s).
+- **Native LuCI Theme Integration**: Clean, auto-adapting CSS dropdowns matching all standard LuCI light and dark themes (Argon, Bootstrap, Material, Design).
 
 ---
 
@@ -46,64 +69,9 @@ curl -sL https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/m
 
 ---
 
-<!-- ## Installation Methods
-
-### Method 2: Web GUI Installation
-
-1. Download the latest package file from [Releases](https://github.com/nightcodex7/luci-app-client-manager/releases):
-   - For **OpenWrt 24.10 and earlier**: Download `luci-app-client-manager_0.1.0-1_all.ipk`
-   - For **OpenWrt 25.12 and newer**: Download `luci-app-client-manager-0.1.0-r1.apk`
-2. Open LuCI Web Interface (`http://192.168.1.1`).
-3. Go to **System ➔ Software**.
-4. Click **Upload Package...**.
-5. Select the downloaded `.ipk` or `.apk` file and click **Upload**.
-6. Click **Install**.
-7. Refresh your browser page to see the **Clients** menu in the top bar.
-
----
-
-### Method 3: Manual Command Line Package Installation
-
-#### OPKG (OpenWrt 24.10 and earlier)
-```bash
-opkg update
-opkg install luci-app-client-manager_0.1.0-1_all.ipk
-/etc/init.d/rpcd restart
-/etc/init.d/uhttpd restart
-```
-
-#### APK (OpenWrt 25.12 and newer)
-```bash
-apk --update-cache add luci-app-client-manager-0.1.0-r1.apk
-/etc/init.d/rpcd restart
-/etc/init.d/uhttpd restart
-```
-
----
-
-### Method 4: Manual Installation from Source
-
-```bash
-# Clone repository
-git clone https://github.com/nightcodex7/luci-app-client-manager.git
-cd luci-app-client-manager
-
-# Copy files to router via SCP
-scp -r root/* root@192.168.1.1:/
-scp -r htdocs/* root@192.168.1.1:/www/
-
-# Set permissions and run initial setup
-ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /etc/uci-defaults/luci-app-client-manager && /etc/uci-defaults/luci-app-client-manager"
-
-# Clear LuCI cache and restart services
-ssh root@192.168.1.1 "rm -f /tmp/luci-indexcache /tmp/luci-modulecache* && /etc/init.d/rpcd restart && sleep 1 && /etc/init.d/uhttpd restart"
-```
-
---- -->
-
 ### Method 2: OpenWrt SDK / ImageBuilder Build
 
-To include the package in a custom build:
+To include the package in a custom firmware build:
 
 ```bash
 # Clone into SDK package directory
@@ -154,10 +122,16 @@ wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/
 
 ```text
 luci-app-client-manager/
+├── LICENSE
 ├── Makefile
 ├── README.md
 ├── install.sh
 ├── uninstall.sh
+├── assets/
+│   ├── bandwidth.png
+│   ├── dashboard.png
+│   ├── firewall.png
+│   └── wifiaccess.png
 ├── root/
 │   ├── etc/
 │   │   └── uci-defaults/
@@ -190,3 +164,4 @@ luci-app-client-manager/
 ## License
 
 This project is licensed under the **Apache License 2.0**.
+Copyright (c) 2026 Tuhin Garai <tuhingarai123@gmail.com>
