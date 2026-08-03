@@ -3,7 +3,6 @@
 'require rpc';
 'require ui';
 'require dom';
-'require poll';
 
 var callGetBandwidth = rpc.declare({
 	object: 'luci.clientmanager',
@@ -27,8 +26,8 @@ function formatBytes(bytes) {
 return view.extend({
 	load: function() {
 		return Promise.all([
-			callGetBandwidth(),
-			callGetClients()
+			callGetBandwidth().catch(function() { return []; }),
+			callGetClients().catch(function() { return []; })
 		]);
 	},
 
@@ -98,7 +97,13 @@ return view.extend({
 		}
 
 		var updateData = function() {
-			return Promise.all([callGetBandwidth(), callGetClients()]).then(function(newData) {
+			return Promise.all([
+				callGetBandwidth().catch(function() { return []; }),
+				callGetClients().catch(function() { return []; })
+			]).then(function(newData) {
+				var tbody = document.getElementById('cm-bw-tbody');
+				if (!tbody) return;
+
 				var newBw = newData[0] || [];
 				var newClients = newData[1] || [];
 				var newBwMap = {};
@@ -159,7 +164,9 @@ return view.extend({
 					});
 				}
 
-				dom.content(tableBody, newBody.childNodes);
+				dom.content(tbody, newBody.childNodes);
+			}).catch(function() {
+				// Silently handle error
 			});
 		};
 
@@ -168,7 +175,13 @@ return view.extend({
 			'click': function() { updateData(); }
 		}, _('↻ Refresh'));
 
-		poll.add(L.bind(updateData, this), 10);
+		var timer = window.setInterval(function() {
+			if (!document.getElementById('cm-bw-tbody')) {
+				window.clearInterval(timer);
+				return;
+			}
+			updateData();
+		}, 10000);
 
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Bandwidth Monitor')),

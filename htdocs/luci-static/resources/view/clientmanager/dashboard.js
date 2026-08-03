@@ -3,7 +3,6 @@
 'require rpc';
 'require ui';
 'require dom';
-'require poll';
 
 var callGetClients = rpc.declare({
 	object: 'luci.clientmanager',
