@@ -47,21 +47,5 @@
 			"type": "view",
 			"path": "clientmanager/bandwidth"
 		}
-	},
-	"admin/clientmanager/groups": {
-		"title": "Groups",
-		"order": 6,
-		"action": {
-			"type": "view",
-			"path": "clientmanager/groups"
-		}
-	},
-	"admin/clientmanager/statistics": {
-		"title": "Statistics",
-		"order": 7,
-		"action": {
-			"type": "view",
-			"path": "clientmanager/statistics"
-		}
 	}
 }

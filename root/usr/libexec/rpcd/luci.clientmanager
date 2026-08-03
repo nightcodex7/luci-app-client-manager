@@ -7,19 +7,12 @@ cat <<'EOF'
 	"getStatus": {},
 	"getClients": {},
 	"getClientDetail": { "mac": "" },
-	"setClientMeta": { "mac": "", "name": "", "owner": "", "notes": "", "icon": "" },
 	"getWifiInterfaces": {},
 	"setMacFilter": { "section": "", "mac": "", "action": "" },
 	"setFirewallRule": { "mac": "", "action": "" },
 	"getFirewallRules": {},
 	"deleteFirewallRule": { "mac": "" },
-	"getBandwidth": {},
-	"getGroups": {},
-	"setGroup": { "id": "", "name": "", "description": "", "block_internet": "0" },
-	"deleteGroup": { "id": "" },
-	"assignGroup": { "mac": "", "group": "", "action": "" },
-	"getStatistics": {},
-	"startVnstat": {}
+	"getBandwidth": {}
 }
 EOF
 	exit 0
@@ -40,11 +33,10 @@ if [ "$1" = "call" ]; then
 			TMP_WL="/tmp/cm_wl_$$.txt"
 			TMP_IP6="/tmp/cm_ip6_$$.txt"
 			TMP_UCI="/tmp/cm_uci_$$.txt"
-			TMP_META="/tmp/cm_meta_$$.txt"
 			TMP_FILE="/tmp/cm_clients_$$.json"
 
-			trap 'rm -f "$TMP_SSID" "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_META" "$TMP_FILE" 2>/dev/null' EXIT INT TERM
-			rm -f "$TMP_SSID" "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_META" "$TMP_FILE"
+			trap 'rm -f "$TMP_SSID" "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_FILE" 2>/dev/null' EXIT INT TERM
+			rm -f "$TMP_SSID" "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_FILE"
 
 			if command -v ubus >/dev/null 2>&1; then
 				# Method 1: iwinfo ubus
@@ -94,8 +86,8 @@ if [ "$1" = "call" ]; then
 					wiface=$(uci -q get wireless.$s.ifname 2>/dev/null || uci -q get wireless.$s.device 2>/dev/null || true)
 					wssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
 					if [ -n "$wssid" ]; then
-						[ -n "$wiface" ] && echo "$wiface | $wssid" >> "$TMP_SSID"
-						echo "$s | $wssid" >> "$TMP_SSID"
+						[ -n "$wiface" ] && echo "$wiface | $wssid | " >> "$TMP_SSID"
+						echo "$s | $wssid | " >> "$TMP_SSID"
 					fi
 				done
 			fi
@@ -120,64 +112,42 @@ if [ "$1" = "call" ]; then
 			# Gather IPv6 addresses
 			TMP_IP6="/tmp/cm_ip6_$$.txt"
 			rm -f "$TMP_IP6"
-
 			if command -v ip >/dev/null 2>&1; then
-				ip -6 neighbor show 2>/dev/null | awk '{
-					ip6 = $1
-					mac = ""
-					for (i=1; i<=NF; i++) {
-						if ($i == "lladdr" && (i+1)<=NF) mac = toupper($(i+1))
-					}
-					if (mac != "" && length(mac) == 17 && ip6 !~ /^fe80/) {
-						print mac " " ip6
-					}
-				}' >> "$TMP_IP6" 2>/dev/null || true
-			fi
-
-			for f in /tmp/hosts/odhcpd /var/etc/odhcpd.leases /tmp/dhcp.leases; do
-				if [ -f "$f" ]; then
-					awk '
-						/mac=/ {
-							ip6 = $1
-							for (i=1; i<=NF; i++) {
-								if ($i ~ /^mac=/) {
-									mac = toupper(substr($i, 5))
-									if (mac != "" && ip6 ~ /:/ && ip6 !~ /^fe80/) print mac " " ip6
-								}
+				ip -6 neighbor show 2>/dev/null | awk '
+					$1 ~ /^[0-9a-fA-F:]+$/ && $1 !~ /^fe80/ {
+						for (i=1; i<=NF; i++) {
+							if ($i == "lladdr" && (i+1) <= NF) {
+								mac = toupper($(i+1))
+								if (length(mac) == 17) print mac " " $1
 							}
 						}
-						NF >= 4 && $3 ~ /:/ {
-							mac = toupper($2)
-							ip6 = $3
-							if (length(mac) == 17 && ip6 !~ /^fe80/) print mac " " ip6
+					}
+				' >> "$TMP_IP6" 2>/dev/null || true
+			fi
+			if [ -f /tmp/hosts/odhcpd ] || [ -f /var/etc/odhcpd.leases ]; then
+				cat /tmp/hosts/odhcpd /var/etc/odhcpd.leases 2>/dev/null | awk '
+					$1 ~ /^[0-9a-fA-F:]+$/ && $1 !~ /^fe80/ {
+						for (i=1; i<=NF; i++) {
+							if ($(i) ~ /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/) {
+								print toupper($(i)) " " $1
+							}
 						}
-					' "$f" >> "$TMP_IP6" 2>/dev/null || true
-				fi
-			done
+					}
+				' >> "$TMP_IP6" 2>/dev/null || true
+			fi
 
+			# Gather static lease hostnames/IPs from UCI dhcp
 			TMP_UCI="/tmp/cm_uci_$$.txt"
 			rm -f "$TMP_UCI"
 			if command -v uci >/dev/null 2>&1; then
 				for s in $(uci -q show dhcp 2>/dev/null | grep "=host" | cut -d. -f2 | cut -d= -f1); do
-					umac=$(uci -q get dhcp.$s.mac 2>/dev/null | tr 'a-z' 'A-Z' | awk '{print $1}')
-					uip=$(uci -q get dhcp.$s.ip 2>/dev/null || true)
-					uname=$(uci -q get dhcp.$s.name 2>/dev/null || true)
-					if [ -n "$umac" ]; then
-						echo "$umac $uip $uname" >> "$TMP_UCI"
-					fi
-				done
-			fi
-
-			TMP_META="/tmp/cm_meta_$$.txt"
-			rm -f "$TMP_META"
-			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
-				for s in $(uci -q show clientmanager 2>/dev/null | grep "=client" | cut -d. -f2 | cut -d= -f1); do
-					mmac=$(uci -q get clientmanager.$s.mac 2>/dev/null | tr 'a-z' 'A-Z')
-					mname=$(uci -q get clientmanager.$s.name 2>/dev/null || true)
-					mowner=$(uci -q get clientmanager.$s.owner 2>/dev/null || true)
-					micon=$(uci -q get clientmanager.$s.icon 2>/dev/null || true)
-					if [ -n "$mmac" ]; then
-						echo "$mmac | $mname | $mowner | $micon" >> "$TMP_META"
+					dmac=$(uci -q get dhcp.$s.mac 2>/dev/null | tr 'a-z' 'A-Z')
+					dip=$(uci -q get dhcp.$s.ip 2>/dev/null || true)
+					dname=$(uci -q get dhcp.$s.name 2>/dev/null || true)
+					if [ -n "$dmac" ]; then
+						for m in $dmac; do
+							echo "$m $dip $dname" >> "$TMP_UCI"
+						done
 					fi
 				done
 			fi
@@ -194,7 +164,7 @@ if [ "$1" = "call" ]; then
 			[ -f "$LEASE_FILE" ] || LEASE_FILE="/dev/null"
 			[ -f "$ARP_FILE" ] || ARP_FILE="/dev/null"
 
-			awk -v wl_file="$TMP_WL" -v ssid_file="$TMP_SSID" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" -v def_if="$DEF_IFACE" -v now="$NOW" '
+			awk -v wl_file="$TMP_WL" -v ssid_file="$TMP_SSID" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v def_if="$DEF_IFACE" -v now="$NOW" '
 			BEGIN {
 				print "{\"clients\":["
 				first = 1
@@ -251,23 +221,6 @@ if [ "$1" = "call" ]; then
 					}
 					close(uci_file)
 				}
-
-				if (meta_file != "") {
-					while ((getline < meta_file) > 0) {
-						n = split($0, parts, "|")
-						if (n >= 1) {
-							m = toupper(parts[1])
-							gsub(/^[ \t]+|[ \t]+$/, "", m)
-							if (m != "") {
-								if (n >= 2) { gsub(/^[ \t]+|[ \t]+$/, "", parts[2]); meta_name[m] = parts[2] }
-								if (n >= 3) { gsub(/^[ \t]+|[ \t]+$/, "", parts[3]); meta_owner[m] = parts[3] }
-								if (n >= 4) { gsub(/^[ \t]+|[ \t]+$/, "", parts[4]); meta_icon[m] = parts[4] }
-								seen[m] = 1
-							}
-						}
-					}
-					close(meta_file)
-				}
 			}
 
 			NR == FNR {
@@ -297,31 +250,31 @@ if [ "$1" = "call" ]; then
 					if (!first) printf ","
 					first = 0
 
-					if_name = wl_if[m] ? wl_if[m] : (iface[m] ? iface[m] : def_if)
+					if_name = iface[m] ? iface[m] : (wl_if[m] ? wl_if[m] : def_if)
+					if (if_name ~ /^(phy|wlan|ra|ath)[0-9]/) if_name = def_if
+
 					is_wl = wl_is[m] ? "true" : "false"
 					sig_str = wl_sig[m] ? wl_sig[m] : "null"
 					noise_str = wl_noise[m] ? wl_noise[m] : "null"
 
 					is_conn = (wl_is[m] || arp_active[m] || (lease_exp[m] && lease_exp[m] > now)) ? "true" : "false"
-					c_ssid = ssid_map[if_name] ? ssid_map[if_name] : ""
-					c_freq = freq_map[if_name] ? freq_map[if_name] : ""
+					raw_wlif = wl_if[m] ? wl_if[m] : if_name
+					c_ssid = ssid_map[raw_wlif] ? ssid_map[raw_wlif] : (ssid_map[if_name] ? ssid_map[if_name] : "")
+					c_freq = freq_map[raw_wlif] ? freq_map[raw_wlif] : (freq_map[if_name] ? freq_map[if_name] : "")
 
 					h = host[m]; gsub(/\\/, "\\\\", h); gsub(/"/, "\\\"", h)
-					mn = meta_name[m]; gsub(/\\/, "\\\\", mn); gsub(/"/, "\\\"", mn)
-					mo = meta_owner[m]; gsub(/\\/, "\\\\", mo); gsub(/"/, "\\\"", mo)
-					mi = meta_icon[m]; gsub(/\\/, "\\\\", mi); gsub(/"/, "\\\"", mi)
 					ms = c_ssid; gsub(/\\/, "\\\\", ms); gsub(/"/, "\\\"", ms)
 					mf = c_freq; gsub(/\\/, "\\\\", mf); gsub(/"/, "\\\"", mf)
 
-					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"ssid\":\"%s\",\"freq\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s,\"connected\":%s}",
-						m, ip[m], ip6[m], h, mn, mo, mi,
+					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"expires\":%s,\"interface\":\"%s\",\"ssid\":\"%s\",\"freq\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s,\"connected\":%s}",
+						m, ip[m], ip6[m], h,
 						(lease_exp[m] ? lease_exp[m] : "0"), if_name, ms, mf, is_wl, sig_str, noise_str, is_conn
 				}
 				print "]}"
 			}
 			' "$LEASE_FILE" "$ARP_FILE" > "$TMP_FILE" 2>/dev/null
 
-			rm -f "$TMP_WL" "$TMP_SSID" "$TMP_IP6" "$TMP_UCI" "$TMP_META"
+			rm -f "$TMP_WL" "$TMP_SSID" "$TMP_IP6" "$TMP_UCI"
 
 			if [ -s "$TMP_FILE" ]; then
 				cat "$TMP_FILE"
@@ -346,8 +299,9 @@ if [ "$1" = "call" ]; then
 			IS_WL="false"
 			SIG="null"
 			NOISE="null"
+			SSID=""
+			FREQ=""
 
-			# DHCP leases
 			if [ -f /tmp/dhcp.leases ]; then
 				LINE=$(grep -i "$MAC" /tmp/dhcp.leases | head -n 1)
 				if [ -n "$LINE" ]; then
@@ -358,12 +312,10 @@ if [ "$1" = "call" ]; then
 				fi
 			fi
 
-			# IPv6 check
 			if command -v ip >/dev/null 2>&1; then
 				IP6=$(ip -6 neighbor show 2>/dev/null | grep -i "$MAC" | awk '{print $1}' | grep -v '^fe80' | head -n 1 || true)
 			fi
 
-			# ARP table
 			if [ -f /proc/net/arp ]; then
 				ALINE=$(grep -i "$MAC" /proc/net/arp | head -n 1)
 				if [ -n "$ALINE" ]; then
@@ -372,186 +324,49 @@ if [ "$1" = "call" ]; then
 				fi
 			fi
 
-			# Wireless check (iwinfo + hostapd + iw)
+			DEF_IFACE="br-lan"
+			if [ -z "$IFACE" ] || echo "$IFACE" | grep -qE '^(phy|wlan|ra|ath)[0-9]'; then
+				IFACE="$DEF_IFACE"
+			fi
+
 			if command -v ubus >/dev/null 2>&1; then
 				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
 				for d in $DEVS; do
 					ASSOC=$(ubus call iwinfo assoclist "{\"device\":\"$d\"}" 2>/dev/null || true)
 					if echo "$ASSOC" | grep -qi "$MAC" 2>/dev/null; then
 						IS_WL="true"
-						IFACE="$d"
-						SIG_VAL=$(echo "$ASSOC" | jsonfilter -e "@.results[@.mac='$MAC'].signal" 2>/dev/null || true)
-						NOISE_VAL=$(echo "$ASSOC" | jsonfilter -e "@.results[@.mac='$MAC'].noise" 2>/dev/null || true)
-						[ -n "$SIG_VAL" ] && SIG="$SIG_VAL"
-						[ -n "$NOISE_VAL" ] && NOISE="$NOISE_VAL"
-						break
-					fi
-				done
-
-				if [ "$IS_WL" = "false" ]; then
-					HDEVS=$(ubus list 2>/dev/null | grep '^hostapd\.' | cut -d. -f2- || true)
-					for hd in $HDEVS; do
-						CLIENTS=$(ubus call "hostapd.$hd" get_clients 2>/dev/null || true)
-						if echo "$CLIENTS" | grep -qi "$MAC" 2>/dev/null; then
-							IS_WL="true"
-							IFACE="$hd"
-							SIG_VAL=$(echo "$CLIENTS" | jsonfilter -e "@.clients[@.mac='$MAC'].signal" 2>/dev/null || true)
-							[ -n "$SIG_VAL" ] && SIG="$SIG_VAL"
-							break
-						fi
-					done
-				fi
-			fi
-
-			if [ "$IS_WL" = "false" ] && command -v iw >/dev/null 2>&1; then
-				IW_DEVS=$(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}')
-				for id in $IW_DEVS; do
-					ST_DUMP=$(iw dev "$id" station dump 2>/dev/null || true)
-					if echo "$ST_DUMP" | grep -qi "$MAC" 2>/dev/null; then
-						IS_WL="true"
-						IFACE="$id"
-						SIG_VAL=$(echo "$ST_DUMP" | awk -v mac="$MAC" '
-							/^Station/ { curr=toupper($2) }
-							/signal:/ { if (curr == mac) print $2 }
-						' | head -n 1 || true)
-						[ -n "$SIG_VAL" ] && SIG="$SIG_VAL"
+						INFO=$(ubus call iwinfo info "{\"device\":\"$d\"}" 2>/dev/null || true)
+						SSID=$(echo "$INFO" | jsonfilter -e '@.ssid' 2>/dev/null || true)
+						FREQ=$(echo "$INFO" | jsonfilter -e '@.frequency' 2>/dev/null || true)
+						SIG=$(echo "$ASSOC" | jsonfilter -e "@.results[?(@.mac=='${MAC}')].signal" 2>/dev/null || true)
+						NOISE=$(echo "$ASSOC" | jsonfilter -e "@.results[?(@.mac=='${MAC}')].noise" 2>/dev/null || true)
+						[ -z "$SIG" ] && SIG="-65"
+						[ -z "$NOISE" ] && NOISE="-95"
 						break
 					fi
 				done
 			fi
 
-			if [ -z "$IFACE" ]; then
-				DEF_IF="br-lan"
-				if command -v uci >/dev/null 2>&1; then
-					D_IF=$(uci -q get network.lan.device 2>/dev/null || uci -q get network.lan.ifname 2>/dev/null || true)
-					[ -n "$D_IF" ] && DEF_IF="$D_IF"
-				fi
-				IFACE="$DEF_IF"
-			fi
-
-			# Load UCI metadata
-			CM_NAME=""
-			CM_OWNER=""
-			CM_NOTES=""
-			CM_ICON=""
-			CM_GROUPS="[]"
-			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
-				for s in $(uci -q show clientmanager 2>/dev/null | grep "=client" | cut -d. -f2 | cut -d= -f1); do
-					smac=$(uci -q get clientmanager.$s.mac 2>/dev/null | tr 'a-z' 'A-Z')
-					if [ "$smac" = "$MAC" ]; then
-						CM_NAME=$(uci -q get clientmanager.$s.name 2>/dev/null || true)
-						CM_OWNER=$(uci -q get clientmanager.$s.owner 2>/dev/null || true)
-						CM_NOTES=$(uci -q get clientmanager.$s.notes 2>/dev/null || true)
-						CM_ICON=$(uci -q get clientmanager.$s.icon 2>/dev/null || true)
-						# Build groups array
-						GLIST="["
-						GFIRST=1
-						for g in $(uci -q get clientmanager.$s.groups 2>/dev/null || true); do
-							[ "$GFIRST" -eq 0 ] && GLIST="${GLIST},"
-							GFIRST=0
-							GLIST="${GLIST}\"${g}\""
-						done
-						GLIST="${GLIST}]"
-						CM_GROUPS="$GLIST"
-						break
-					fi
-				done
-			fi
-
-			# Also check dhcp static host for hostname
-			if [ -z "$HOST" ] && command -v uci >/dev/null 2>&1; then
-				for s in $(uci -q show dhcp 2>/dev/null | grep "=host" | cut -d. -f2 | cut -d= -f1); do
-					hmac=$(uci -q get dhcp.$s.mac 2>/dev/null | tr 'a-z' 'A-Z' | awk '{print $1}')
-					if [ "$hmac" = "$MAC" ]; then
-						HOST=$(uci -q get dhcp.$s.name 2>/dev/null || true)
-						break
-					fi
-				done
-			fi
-
-			json_esc() {
-				printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | tr '\n' ' '
-			}
-
-			ESC_HOST=$(json_esc "$HOST")
-			ESC_NAME=$(json_esc "$CM_NAME")
-			ESC_OWNER=$(json_esc "$CM_OWNER")
-			ESC_NOTES=$(json_esc "$CM_NOTES")
-			ESC_ICON=$(json_esc "$CM_ICON")
-			ESC_IFACE=$(json_esc "$IFACE")
-
-			printf '{"client":{"mac":"%s","ip":"%s","ip6":"%s","hostname":"%s","name":"%s","owner":"%s","notes":"%s","icon":"%s","groups":%s,"expires":%s,"interface":"%s","wireless":%s,"signal":%s,"noise":%s}}\n' \
-				"$MAC" "$IP" "$IP6" "$ESC_HOST" "$ESC_NAME" "$ESC_OWNER" "$ESC_NOTES" "$ESC_ICON" "$CM_GROUPS" "$LEASE_EXP" "$ESC_IFACE" "$IS_WL" "$SIG" "$NOISE"
-			;;
-
-		setClientMeta)
-			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
-			NAME=$(echo "$INPUT" | jsonfilter -e '@.name' 2>/dev/null)
-			OWNER=$(echo "$INPUT" | jsonfilter -e '@.owner' 2>/dev/null)
-			NOTES=$(echo "$INPUT" | jsonfilter -e '@.notes' 2>/dev/null)
-			ICON=$(echo "$INPUT" | jsonfilter -e '@.icon' 2>/dev/null)
-
-			if [ -z "$MAC" ]; then
-				echo '{"error":"MAC address required"}'
-				exit 0
-			fi
-
-			[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
-
-			SEC=""
-			for s in $(uci -q show clientmanager | grep "=client" | cut -d. -f2 | cut -d= -f1); do
-				smac=$(uci -q get clientmanager.$s.mac | tr 'a-z' 'A-Z')
-				if [ "$smac" = "$MAC" ]; then
-					SEC="$s"
-					break
-				fi
-			done
-
-			if [ -z "$SEC" ]; then
-				SEC=$(uci add clientmanager client)
-				uci set clientmanager.$SEC.mac="$MAC"
-			fi
-
-			[ -n "$NAME" ] && uci set clientmanager.$SEC.name="$NAME" || uci -q del clientmanager.$SEC.name
-			[ -n "$OWNER" ] && uci set clientmanager.$SEC.owner="$OWNER" || uci -q del clientmanager.$SEC.owner
-			[ -n "$NOTES" ] && uci set clientmanager.$SEC.notes="$NOTES" || uci -q del clientmanager.$SEC.notes
-			[ -n "$ICON" ] && uci set clientmanager.$SEC.icon="$ICON" || uci -q del clientmanager.$SEC.icon
-
-			uci commit clientmanager
-			echo '{"success":true}'
+			printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"expires\":%s,\"interface\":\"%s\",\"ssid\":\"%s\",\"freq\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s}\n" \
+				"$MAC" "$IP" "$IP6" "$HOST" "$LEASE_EXP" "$IFACE" "$SSID" "$FREQ" "$IS_WL" "${SIG:-null}" "${NOISE:-null}"
 			;;
 
 		getWifiInterfaces)
-			IF_LIST="["
+			IFACES="["
 			FIRST=1
 			if command -v uci >/dev/null 2>&1; then
 				for s in $(uci -q show wireless 2>/dev/null | grep "=wifi-iface" | cut -d. -f2 | cut -d= -f1); do
-					mode=$(uci -q get wireless.$s.mode 2>/dev/null || echo "ap")
-					if [ "$mode" = "ap" ]; then
-						dev=$(uci -q get wireless.$s.device 2>/dev/null || true)
-						ssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
-						mf=$(uci -q get wireless.$s.macfilter 2>/dev/null || echo "disable")
-						dis=$(uci -q get wireless.$s.disabled 2>/dev/null || echo "0")
-
-						MLIST="["
-						MFIRST=1
-						for m in $(uci -q get wireless.$s.maclist 2>/dev/null || true); do
-							um=$(echo "$m" | tr 'a-z' 'A-Z')
-							[ -n "$um" ] || continue
-							[ "$MFIRST" -eq 0 ] && MLIST="${MLIST},"
-							MFIRST=0
-							MLIST="${MLIST}\"${um}\""
-						done
-						MLIST="${MLIST}]"
-
-						[ "$FIRST" -eq 0 ] && IF_LIST="${IF_LIST},"
-						FIRST=0
-						IF_LIST="${IF_LIST}{\"section\":\"$s\",\"device\":\"$dev\",\"ssid\":\"$ssid\",\"mode\":\"$mode\",\"macfilter\":\"$mf\",\"disabled\":\"$dis\",\"maclist\":$MLIST}"
-					fi
+					d=$(uci -q get wireless.$s.device 2>/dev/null || true)
+					m=$(uci -q get wireless.$s.mode 2>/dev/null || echo "ap")
+					ssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
+					disabled=$(uci -q get wireless.$s.disabled 2>/dev/null || echo "0")
+					[ "$FIRST" -eq 0 ] && IFACES="${IFACES},"
+					FIRST=0
+					IFACES="${IFACES}{\"section\":\"$s\",\"device\":\"$d\",\"mode\":\"$m\",\"ssid\":\"$ssid\",\"disabled\":\"$disabled\"}"
 				done
 			fi
-			IF_LIST="${IF_LIST}]"
-			echo "{\"interfaces\":$IF_LIST}"
+			IFACES="${IFACES}]"
+			echo "{\"interfaces\":$IFACES}"
 			;;
 
 		setMacFilter)
@@ -581,7 +396,6 @@ if [ "$1" = "call" ]; then
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				RULE_NAME="cm_${CLEAN_MAC}"
 
-				# Remove existing rule with this name
 				for s in $(uci -q show firewall | grep "\.name='${RULE_NAME}'" | cut -d. -f2); do
 					uci delete firewall.$s 2>/dev/null || true
 				done
@@ -698,157 +512,6 @@ if [ "$1" = "call" ]; then
 			else
 				echo '{"bandwidth":[]}'
 			fi
-			;;
-
-		getGroups)
-			G_LIST="["
-			FIRST=1
-			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
-				for s in $(uci -q show clientmanager 2>/dev/null | grep "=group" | cut -d. -f2 | cut -d= -f1); do
-					gid=$(uci -q get clientmanager.$s.id 2>/dev/null || echo "$s")
-					gname=$(uci -q get clientmanager.$s.name 2>/dev/null || true)
-					gdesc=$(uci -q get clientmanager.$s.description 2>/dev/null || true)
-					gblk=$(uci -q get clientmanager.$s.block_internet 2>/dev/null || echo "0")
-					[ "$FIRST" -eq 0 ] && G_LIST="${G_LIST},"
-					FIRST=0
-					G_LIST="${G_LIST}{\"section\":\"$s\",\"id\":\"$gid\",\"name\":\"$gname\",\"description\":\"$gdesc\",\"block_internet\":\"$gblk\"}"
-				done
-			fi
-			G_LIST="${G_LIST}]"
-			echo "{\"groups\":$G_LIST}"
-			;;
-
-		setGroup)
-			GID=$(echo "$INPUT" | jsonfilter -e '@.id' 2>/dev/null)
-			GNAME=$(echo "$INPUT" | jsonfilter -e '@.name' 2>/dev/null)
-			GDESC=$(echo "$INPUT" | jsonfilter -e '@.description' 2>/dev/null)
-			GBLK=$(echo "$INPUT" | jsonfilter -e '@.block_internet' 2>/dev/null)
-
-			if [ -z "$GID" ]; then
-				echo '{"error":"group id required"}'
-				exit 0
-			fi
-
-			[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
-
-			SEC=""
-			for s in $(uci -q show clientmanager | grep "=group" | cut -d. -f2 | cut -d= -f1); do
-				sgid=$(uci -q get clientmanager.$s.id || echo "$s")
-				if [ "$sgid" = "$GID" ]; then
-					SEC="$s"
-					break
-				fi
-			done
-
-			if [ -z "$SEC" ]; then
-				SEC=$(uci add clientmanager group)
-				uci set clientmanager.$SEC.id="$GID"
-			fi
-
-			[ -n "$GNAME" ] && uci set clientmanager.$SEC.name="$GNAME"
-			[ -n "$GDESC" ] && uci set clientmanager.$SEC.description="$GDESC"
-			[ -n "$GBLK" ] && uci set clientmanager.$SEC.block_internet="$GBLK"
-
-			uci commit clientmanager
-			echo '{"success":true}'
-			;;
-
-		deleteGroup)
-			GID=$(echo "$INPUT" | jsonfilter -e '@.id' 2>/dev/null)
-			if [ -n "$GID" ]; then
-				for s in $(uci -q show clientmanager | grep "=group" | cut -d. -f2 | cut -d= -f1); do
-					sgid=$(uci -q get clientmanager.$s.id || echo "$s")
-					if [ "$sgid" = "$GID" ]; then
-						uci delete clientmanager.$s 2>/dev/null || true
-					fi
-				done
-				# Clean up group assignments in client sections
-				for c in $(uci -q show clientmanager 2>/dev/null | grep "=client" | cut -d. -f2 | cut -d= -f1); do
-					uci del_list clientmanager.$c.groups="$GID" 2>/dev/null || true
-				done
-				uci commit clientmanager
-			fi
-			echo '{"success":true}'
-			;;
-
-		assignGroup)
-			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
-			GRP=$(echo "$INPUT" | jsonfilter -e '@.group' 2>/dev/null)
-			ACT=$(echo "$INPUT" | jsonfilter -e '@.action' 2>/dev/null)
-
-			if [ -n "$MAC" ] && [ -n "$GRP" ]; then
-				SEC=""
-				for s in $(uci -q show clientmanager | grep "=client" | cut -d. -f2 | cut -d= -f1); do
-					smac=$(uci -q get clientmanager.$s.mac | tr 'a-z' 'A-Z')
-					if [ "$smac" = "$MAC" ]; then
-						SEC="$s"
-						break
-					fi
-				done
-
-				if [ -z "$SEC" ]; then
-					SEC=$(uci add clientmanager client)
-					uci set clientmanager.$SEC.mac="$MAC"
-				fi
-
-				if [ "$ACT" = "add" ]; then
-					uci del_list clientmanager.$SEC.groups="$GRP" 2>/dev/null || true
-					uci add_list clientmanager.$SEC.groups="$GRP"
-				elif [ "$ACT" = "remove" ]; then
-					uci del_list clientmanager.$SEC.groups="$GRP" 2>/dev/null || true
-				fi
-				uci commit clientmanager
-			fi
-			echo '{"success":true}'
-			;;
-
-		getStatistics)
-			if ! command -v vnstat >/dev/null 2>&1; then
-				echo '{"available":false,"reason":"not_installed"}'
-				exit 0
-			fi
-
-			if [ -x /etc/init.d/vnstat ]; then
-				/etc/init.d/vnstat status >/dev/null 2>&1 || /etc/init.d/vnstat start >/dev/null 2>&1 &
-			fi
-
-			VNSTAT=$(vnstat --json 2>/dev/null || vnstat -q --json 2>/dev/null || true)
-
-			FIRST_CHAR=$(echo "$VNSTAT" | awk '{print substr($0,1,1)}')
-			if [ "$FIRST_CHAR" = "{" ]; then
-				echo "{\"available\":true,\"source\":\"vnstat\",\"data\":$VNSTAT}"
-			else
-				for iface in br-lan eth0 wan eth1; do
-					if [ -d "/sys/class/net/$iface" ]; then
-						vnstat --add -i "$iface" >/dev/null 2>&1 || true
-					fi
-				done
-				vnstat -u >/dev/null 2>&1 || true
-				sleep 1
-				VNSTAT=$(vnstat --json 2>/dev/null || vnstat -q --json 2>/dev/null || true)
-				FIRST_CHAR=$(echo "$VNSTAT" | awk '{print substr($0,1,1)}')
-				if [ "$FIRST_CHAR" = "{" ]; then
-					echo "{\"available\":true,\"source\":\"vnstat\",\"data\":$VNSTAT}"
-				else
-					echo '{"available":false,"reason":"service_stopped"}'
-				fi
-			fi
-			;;
-
-		startVnstat)
-			if [ -x /etc/init.d/vnstat ]; then
-				/etc/init.d/vnstat enable >/dev/null 2>&1 || true
-				/etc/init.d/vnstat start >/dev/null 2>&1 || /etc/init.d/vnstat restart >/dev/null 2>&1 || true
-			fi
-			if command -v vnstat >/dev/null 2>&1; then
-				for iface in br-lan eth0 wan eth1; do
-					if [ -d "/sys/class/net/$iface" ]; then
-						vnstat --add -i "$iface" >/dev/null 2>&1 || true
-					fi
-				done
-				vnstat -u >/dev/null 2>&1 || true
-			fi
-			echo '{"success":true}'
 			;;
 
 		*)

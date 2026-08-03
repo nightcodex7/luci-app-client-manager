@@ -35,21 +35,8 @@ function signalIcon(signal) {
 }
 
 function deviceIcon(client) {
-	var icon = client.icon;
 	var isConn = (client.connected !== false);
-
-	var baseIcon = '🔗';
-	if (icon === 'phone') baseIcon = '📱';
-	else if (icon === 'laptop') baseIcon = '💻';
-	else if (icon === 'desktop') baseIcon = '🖥️';
-	else if (icon === 'tablet') baseIcon = '📲';
-	else if (icon === 'tv') baseIcon = '📺';
-	else if (icon === 'iot') baseIcon = '🔌';
-	else if (icon === 'printer') baseIcon = '🖨️';
-	else if (icon === 'camera') baseIcon = '📷';
-	else if (icon === 'gaming') baseIcon = '🎮';
-	else if (icon === 'server') baseIcon = '🖧';
-	else if (client.wireless) baseIcon = '📶';
+	var baseIcon = client.wireless ? '📶' : '🔗';
 
 	if (!isConn) {
 		return E('span', {
@@ -113,8 +100,6 @@ return view.extend({
 		]);
 	},
 
-	pollRegistered: false,
-
 	render: function(data) {
 		var clients = data[0] || [];
 		var rules = data[1] || [];
@@ -144,7 +129,7 @@ return view.extend({
 
 		var searchInput = E('input', {
 			'type': 'text',
-			'placeholder': _('Search by hostname, IP, MAC, owner, or SSID…'),
+			'placeholder': _('Search by hostname, IP, MAC, or SSID…'),
 			'class': 'cbi-input-text',
 			'style': 'width:100%;margin-bottom:12px;padding:8px;font-size:14px;',
 			'id': 'cm-search'
@@ -178,9 +163,14 @@ return view.extend({
 		var uniqueIfaces = {};
 		clients.forEach(function(c) {
 			if (c.interface) {
-				uniqueIfaces[c.interface] = true;
+				var ifName = c.interface;
+				var isWanOrPhy = /^(wan|wan6|wwan|modem|pppoe|eth1|phy[0-9])/i.test(ifName);
+				if (!isWanOrPhy) {
+					uniqueIfaces[ifName] = true;
+				}
 			}
 		});
+
 		Object.keys(uniqueIfaces).sort().forEach(function(ifName) {
 			ifaceOptions.push(E('option', { 'value': ifName }, ifName));
 		});
@@ -321,14 +311,11 @@ return view.extend({
 
 		clients.forEach(function(c) {
 			clientMap[c.mac] = c;
-			var displayName = c.name || c.hostname || _('Unknown');
-			var subtitle = c.name ? (c.hostname || '') : '';
+			var displayName = c.hostname || c.ip || _('Unknown');
 			var blocked = blockedMacs[c.mac] || false;
 
 			var nameCell = E('td', { 'class': 'td' }, [
-				E('strong', {}, displayName),
-				subtitle ? E('br') : '',
-				subtitle ? E('small', { 'style': 'opacity:0.6' }, subtitle) : ''
+				E('strong', {}, displayName)
 			]);
 
 			var formattedIface = formatIfaceName(c.interface, c.wireless, c.ssid, c.freq);
@@ -339,7 +326,7 @@ return view.extend({
 					(blocked ? 'opacity:0.5;' : ''),
 				'data-mac': c.mac,
 				'data-search': [
-					displayName, c.hostname, c.ip, c.ip6, c.mac, c.owner, c.ssid, formattedIface
+					displayName, c.hostname, c.ip, c.ip6, c.mac, c.ssid, formattedIface
 				].join(' ').toLowerCase(),
 				'click': function(ev) {
 					window.location.href = L.url('admin/clientmanager/details') + '?mac=' + encodeURIComponent(c.mac);
@@ -387,7 +374,7 @@ return view.extend({
 			'body:not([data-theme="dark"]) select.cbi-input-select option { background-color: #ffffff !important; color: #333333 !important; }'
 		);
 
-		var view = E('div', { 'class': 'cbi-map' }, [
+		return E('div', { 'class': 'cbi-map' }, [
 			dropdownStyleElem,
 			E('h2', {}, _('Client Manager')),
 			E('div', { 'class': 'cbi-map-descr' },
@@ -396,18 +383,6 @@ return view.extend({
 			searchInput,
 			tbl
 		]);
-
-		if (!this.pollRegistered) {
-			this.pollRegistered = true;
-			poll.add(L.bind(function() {
-				return callGetClients().then(function(updated) {
-					if (updated && updated.length !== clients.length)
-						window.location.reload();
-				});
-			}, this), 30);
-		}
-
-		return view;
 	},
 
 	handleSaveApply: null,

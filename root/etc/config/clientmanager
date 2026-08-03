@@ -1,2 +1,0 @@
-config globals 'globals'
-	option history_retention '30'

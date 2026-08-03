@@ -29,7 +29,6 @@ elif command -v apk >/dev/null 2>&1; then
 fi
 
 echo "[1/5] Preparing directory layout..."
-mkdir -p /etc/config
 mkdir -p /etc/uci-defaults
 mkdir -p /usr/libexec/rpcd
 mkdir -p /usr/share/luci/menu.d
@@ -37,23 +36,22 @@ mkdir -p /usr/share/rpcd/acl.d
 mkdir -p /www/luci-static/resources/view/clientmanager
 mkdir -p /tmp/clientmanager
 
-# Clean up legacy scripts
+# Clean up obsolete files from previous installations
 rm -f /usr/libexec/rpcd/clientmanager
 rm -f /usr/libexec/clientmanager-dhcp-hook
+rm -f /etc/config/clientmanager
 rm -f /www/luci-static/resources/view/clientmanager/history.js
+rm -f /www/luci-static/resources/view/clientmanager/groups.js
+rm -f /www/luci-static/resources/view/clientmanager/statistics.js
 
 echo "[2/5] Downloading backend and configuration files..."
-if [ ! -f /etc/config/clientmanager ]; then
-    $FETCH /etc/config/clientmanager "$REPO_URL/root/etc/config/clientmanager"
-fi
-
 $FETCH /etc/uci-defaults/luci-app-client-manager "$REPO_URL/root/etc/uci-defaults/luci-app-client-manager"
 $FETCH /usr/libexec/rpcd/luci.clientmanager "$REPO_URL/root/usr/libexec/rpcd/luci.clientmanager"
 $FETCH /usr/share/luci/menu.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/luci/menu.d/luci-app-client-manager.json"
 $FETCH /usr/share/rpcd/acl.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/rpcd/acl.d/luci-app-client-manager.json"
 
 echo "[3/5] Downloading frontend views..."
-for view in bandwidth dashboard details firewall groups statistics wifi; do
+for view in bandwidth dashboard details firewall wifi; do
     $FETCH "/www/luci-static/resources/view/clientmanager/${view}.js" \
         "$REPO_URL/htdocs/luci-static/resources/view/clientmanager/${view}.js"
 done
@@ -68,7 +66,6 @@ if [ -f /etc/uci-defaults/luci-app-client-manager ]; then
     /etc/uci-defaults/luci-app-client-manager
 fi
 
-# Clean up dhcpscript if set by previous installation
 CURRENT_HOOK=$(uci -q get dhcp.@dnsmasq[0].dhcpscript || true)
 if [ "$CURRENT_HOOK" = "/usr/libexec/clientmanager-dhcp-hook" ]; then
     uci delete dhcp.@dnsmasq[0].dhcpscript
@@ -82,11 +79,6 @@ rm -f /tmp/luci-indexcache /tmp/luci-modulecache* 2>/dev/null || true
 /etc/init.d/rpcd restart 2>/dev/null || true
 sleep 1
 /etc/init.d/uhttpd restart 2>/dev/null || true
-
-if [ -x /etc/init.d/vnstat ]; then
-    /etc/init.d/vnstat enable >/dev/null 2>&1 || true
-    /etc/init.d/vnstat start >/dev/null 2>&1 || true
-fi
 
 echo "=================================================="
 echo " Installation complete!"

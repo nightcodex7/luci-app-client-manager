@@ -32,19 +32,15 @@ return view.extend({
 		]);
 	},
 
-	pollRegistered: false,
-
 	render: function(data) {
 		var bandwidth = data[0] || [];
 		var clients = data[1] || [];
 
-		// Map bandwidth by IP
 		var bwMap = {};
 		bandwidth.forEach(function(b) {
 			if (b.ip) bwMap[b.ip] = b;
 		});
 
-		// Build merged entries list of all connected clients
 		var entries = [];
 		var seenIps = {};
 
@@ -53,7 +49,7 @@ return view.extend({
 			seenIps[c.ip] = true;
 			var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
 			entries.push({
-				displayName: c.name || c.hostname || c.ip,
+				displayName: c.hostname || c.ip,
 				ip: c.ip,
 				mac: c.mac || '—',
 				tx: bw.tx || 0,
@@ -62,7 +58,6 @@ return view.extend({
 			});
 		});
 
-		// Add any conntrack IPs not present in active clients list
 		bandwidth.forEach(function(b) {
 			if (b.ip && !seenIps[b.ip]) {
 				entries.push({
@@ -76,7 +71,6 @@ return view.extend({
 			}
 		});
 
-		// Sort by total bytes descending
 		entries.sort(function(a, b) { return b.bytes - a.bytes; });
 
 		var tableBody = E('tbody', { 'id': 'cm-bw-tbody' });
@@ -103,12 +97,80 @@ return view.extend({
 			});
 		}
 
+		var updateData = function() {
+			return Promise.all([callGetBandwidth(), callGetClients()]).then(function(newData) {
+				var newBw = newData[0] || [];
+				var newClients = newData[1] || [];
+				var newBwMap = {};
+				newBw.forEach(function(b) { if (b.ip) newBwMap[b.ip] = b; });
+
+				var newEntries = [];
+				var newSeenIps = {};
+
+				newClients.forEach(function(c) {
+					if (!c.ip) return;
+					newSeenIps[c.ip] = true;
+					var bw = newBwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
+					newEntries.push({
+						displayName: c.hostname || c.ip,
+						ip: c.ip,
+						mac: c.mac || '—',
+						tx: bw.tx || 0,
+						rx: bw.rx || 0,
+						bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0))
+					});
+				});
+
+				newBw.forEach(function(b) {
+					if (b.ip && !newSeenIps[b.ip]) {
+						newEntries.push({
+							displayName: b.ip,
+							ip: b.ip,
+							mac: '—',
+							tx: b.tx || 0,
+							rx: b.rx || 0,
+							bytes: b.bytes || ((b.tx || 0) + (b.rx || 0))
+						});
+					}
+				});
+
+				newEntries.sort(function(a, b) { return b.bytes - a.bytes; });
+
+				var newBody = E('tbody', { 'id': 'cm-bw-tbody' });
+				if (newEntries.length === 0) {
+					newBody.appendChild(
+						E('tr', { 'class': 'tr placeholder' },
+							E('td', { 'class': 'td', 'colspan': '6',
+								'style': 'text-align:center;padding:24px;' },
+								_('No active network clients or bandwidth data available.')))
+					);
+				} else {
+					newEntries.forEach(function(e) {
+						newBody.appendChild(E('tr', { 'class': 'tr' }, [
+							E('td', { 'class': 'td' }, e.displayName),
+							E('td', { 'class': 'td' }, e.ip),
+							E('td', { 'class': 'td' },
+								E('code', { 'style': 'font-size:0.85em' }, e.mac)),
+							E('td', { 'class': 'td' }, formatBytes(e.tx)),
+							E('td', { 'class': 'td' }, formatBytes(e.rx)),
+							E('td', { 'class': 'td', 'style': 'font-weight:bold' },
+								formatBytes(e.bytes))
+						]));
+					});
+				}
+
+				dom.content(tableBody, newBody.childNodes);
+			});
+		};
+
 		var refreshBtn = E('button', {
 			'class': 'cbi-button cbi-button-action',
-			'click': function() { window.location.reload(); }
+			'click': function() { updateData(); }
 		}, _('↻ Refresh'));
 
-		var view = E('div', { 'class': 'cbi-map' }, [
+		poll.add(L.bind(updateData, this), 10);
+
+		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Bandwidth Monitor')),
 			E('div', { 'class': 'cbi-map-descr' },
 				_('Current per-device bandwidth usage from connection tracking.')),
@@ -126,15 +188,6 @@ return view.extend({
 				tableBody
 			])
 		]);
-
-		if (!this.pollRegistered) {
-			this.pollRegistered = true;
-			poll.add(function() {
-				window.location.reload();
-			}, 30);
-		}
-
-		return view;
 	},
 
 	handleSaveApply: null,

@@ -4,7 +4,7 @@
 [![Backend](https://img.shields.io/badge/Backend-POSIX%20Shell-green.svg)](https://www.gnu.org/software/bash/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](Makefile)
 
-`luci-app-client-manager` is a LuCI application for OpenWrt routers to discover, identify, monitor, and manage devices on your local network. It aggregates data from DHCP leases, ARP entries, IPv6 neighbor tables, and wireless association lists to present a single, responsive device management dashboard.
+`luci-app-client-manager` is a lightweight, daemonless LuCI application for OpenWrt routers to discover, identify, monitor, and manage devices on your local network. It aggregates data from DHCP leases, ARP entries, IPv6 neighbor tables, and wireless association lists to present a fast, responsive device management dashboard.
 
 ---
 
@@ -12,19 +12,17 @@
 
 - **Device Dashboard**: Consolidates DHCP leases (`/tmp/dhcp.leases`), ARP table (`/proc/net/arp`), neighbor table (`ip neighbor`), and wireless associations into a unified device list.
 - **Dual-Stack IPv4 & IPv6**: Automatically discovers and displays both IPv4 and IPv6 addresses per device.
-- **Column Filtering & Sorting**:
+- **Normalized Interface Column**: Displays interface and wireless telemetry as `InterfaceName(SSID(Frequency))` (e.g., `br-lan(Titanic(5.745 GHz))`).
+- **Clean Dropdown Filters**:
   - Filter by IP type (IPv4 / IPv6 / Both).
-  - Filter by Interface (Wired / Wireless / Specific SSIDs & Radios).
+  - Filter by Interface (Wired / Wireless / Specific local network bridges like `br-lan`, `br-guest`).
   - Filter by Lease type (Static / Dynamic).
   - Filter by Status (Online / Blocked).
-  - Sorts connected devices to the top, ordered numerically by IP address.
-- **Multi-Engine Wireless Detection**: Combines queries from `ubus iwinfo`, `hostapd` ubus daemons, and `iw station dump` to report signal levels (`dBm`), radio bands (2.4GHz, 5GHz, 6GHz), and SSIDs across various Wi-Fi chipsets.
-- **Custom Client Metadata**: Set custom names, owners, notes, and icons (Laptop, Phone, TV, Desktop, Tablet, IoT, Printer, Camera, Gaming, Server).
+  - Automatically prioritizes connected devices, sorted numerically by IP address.
+- **Multi-Engine Wireless Telemetry**: Combines queries from `ubus iwinfo`, `hostapd` ubus daemons, and `iw station dump` to report signal levels (`dBm`), radio frequencies, and SSIDs across various Wi-Fi chipsets.
 - **Wi-Fi Access Control**: Toggle per-device MAC filtering on wireless interfaces directly via UCI wireless settings.
 - **Firewall Blocking**: Block or unblock internet access per device using OpenWrt `fw4` UCI firewall rules.
-- **Bandwidth Monitoring**: Track real-time upload and download byte counters using `conntrack`.
-- **Traffic Statistics**: Daily and monthly historical traffic reports integrated with `vnstat` / `vnstat2`.
-- **Device Grouping**: Categorize clients into groups for batch network management.
+- **Real-Time Bandwidth Monitoring**: Track active upload and download byte counters per device using `conntrack` without full page reloads.
 
 ---
 
@@ -139,7 +137,6 @@ wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/
 | **Backend** | POSIX Shell | `/usr/libexec/rpcd/luci.clientmanager` (RPC provider for `rpcd`) |
 | **ACL Security** | `rpcd` ACL | Access control rules (`/usr/share/rpcd/acl.d/luci-app-client-manager.json`) |
 | **Menu Registration** | LuCI Menu JSON | Navigation entry (`/usr/share/luci/menu.d/luci-app-client-manager.json`) |
-| **Storage** | OpenWrt UCI | Persistent metadata stored in `/etc/config/clientmanager` |
 | **Data Sources** | System Utilities | `ubus` (`iwinfo`, `hostapd`), `iw`, `/proc/net/arp`, `ip neighbor`, `/tmp/dhcp.leases`, `conntrack` |
 
 ---
@@ -149,29 +146,7 @@ wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/
 - **OpenWrt Versions**: OpenWrt 21.02, 22.03, 23.05, 24.10, 25.12+ (and derivative firmwares like ImmortalWrt).
 - **Package Managers**: Works with both `opkg` and `apk`.
 - **Architectures**: All architectures (`LUCI_PKGARCH:=all`).
-- **Dependencies**: `luci-base`, `rpcd`, `rpcd-mod-luci`, `conntrack` *(Optional: `vnstat` / `vnstat2` for historical traffic graphs)*.
-
----
-
-## UCI Configuration
-
-Custom device metadata, notes, icons, and group definitions are saved in `/etc/config/clientmanager`:
-
-```text
-config client
-	option mac 'AA:BB:CC:DD:EE:FF'
-	option name 'Living Room TV'
-	option owner 'Alice'
-	option icon 'tv'
-	option notes 'Connected via Ethernet'
-	list groups 'media'
-
-config group
-	option id 'media'
-	option name 'Streaming Media'
-	option description 'Smart TVs and Streaming Devices'
-	option block_internet '0'
-```
+- **Dependencies**: `luci-base`, `rpcd`, `rpcd-mod-luci`, `conntrack`.
 
 ---
 
@@ -181,13 +156,10 @@ config group
 luci-app-client-manager/
 ├── Makefile
 ├── README.md
-├── DEVELOPMENT.md
 ├── install.sh
 ├── uninstall.sh
 ├── root/
 │   ├── etc/
-│   │   ├── config/
-│   │   │   └── clientmanager
 │   │   └── uci-defaults/
 │   │       └── luci-app-client-manager
 │   └── usr/
@@ -210,8 +182,6 @@ luci-app-client-manager/
                     ├── dashboard.js
                     ├── details.js
                     ├── firewall.js
-                    ├── groups.js
-                    ├── statistics.js
                     └── wifi.js
 ```
 
