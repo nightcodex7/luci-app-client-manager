@@ -16,6 +16,12 @@ var callGetClients = rpc.declare({
 	expect: { clients: [] }
 });
 
+var callGetSpeedLimits = rpc.declare({
+	object: 'luci.clientmanager',
+	method: 'getSpeedLimits',
+	expect: { limits: [] }
+});
+
 function formatBytes(bytes) {
 	if (!bytes || bytes === 0) return '0 B';
 	var units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -32,29 +38,36 @@ function ipToLong(ip) {
 	return 999999999999;
 }
 
-function buildBandwidthEntries(bandwidth, clients) {
+function buildBandwidthEntries(bandwidth, clients, speedLimits) {
 	var bwMap = {};
 	bandwidth.forEach(function(b) {
 		if (b.ip) bwMap[b.ip] = b;
 	});
 
+	var limitMap = {};
+	(speedLimits || []).forEach(function(l) {
+		if (l.mac) limitMap[l.mac.toUpperCase()] = l;
+	});
+
 	var entries = [];
 	clients.forEach(function(c) {
-		// Priority 1 & 2: Only connected active clients with valid non-loopback IPv4 addresses
 		if (!c.ip || c.ip === '127.0.0.1' || c.connected === false) return;
 
 		var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
+		var lim = limitMap[(c.mac || '').toUpperCase()] || { download_mbps: 0, upload_mbps: 0 };
+
 		entries.push({
 			displayName: c.hostname || c.ip,
 			ip: c.ip,
 			mac: c.mac || '—',
 			tx: bw.tx || 0,
 			rx: bw.rx || 0,
-			bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0))
+			bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0)),
+			dlLimit: lim.download_mbps || 0,
+			ulLimit: lim.upload_mbps || 0
 		});
 	});
 
-	// Priority 1: Connected devices' IPv4 addresses in ascending order
 	entries.sort(function(a, b) {
 		var numA = ipToLong(a.ip);
 		var numB = ipToLong(b.ip);
@@ -67,25 +80,37 @@ function buildBandwidthEntries(bandwidth, clients) {
 	return entries;
 }
 
+function formatSpeedLimitCell(dl, ul) {
+	if (dl > 0 || ul > 0) {
+		var dlStr = dl > 0 ? dl + 'M' : '∞';
+		var ulStr = ul > 0 ? ul + 'M' : '∞';
+		return E('span', { 'style': 'color:#e67e22;font-weight:bold;font-size:0.9em;' },
+			'⬇ ' + dlStr + ' / ⬆ ' + ulStr);
+	}
+	return E('span', { 'style': 'opacity:0.6;' }, _('Unlimited'));
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
 			callGetBandwidth().catch(function() { return []; }),
-			callGetClients().catch(function() { return []; })
+			callGetClients().catch(function() { return []; }),
+			callGetSpeedLimits().catch(function() { return { limits: [] }; })
 		]);
 	},
 
 	render: function(data) {
 		var bandwidth = data[0] || [];
 		var clients = data[1] || [];
+		var speedLimits = (data[2] && data[2].limits) ? data[2].limits : [];
 
-		var entries = buildBandwidthEntries(bandwidth, clients);
+		var entries = buildBandwidthEntries(bandwidth, clients, speedLimits);
 		var tableBody = E('tbody', { 'id': 'cm-bw-tbody' });
 
 		if (entries.length === 0) {
 			tableBody.appendChild(
 				E('tr', { 'class': 'tr placeholder' },
-					E('td', { 'class': 'td', 'colspan': '6',
+					E('td', { 'class': 'td', 'colspan': '7',
 						'style': 'text-align:center;padding:24px;' },
 						_('No active connected clients available.')))
 			);
@@ -99,7 +124,8 @@ return view.extend({
 					E('td', { 'class': 'td' }, formatBytes(e.tx)),
 					E('td', { 'class': 'td' }, formatBytes(e.rx)),
 					E('td', { 'class': 'td', 'style': 'font-weight:bold' },
-						formatBytes(e.bytes))
+						formatBytes(e.bytes)),
+					E('td', { 'class': 'td' }, formatSpeedLimitCell(e.dlLimit, e.ulLimit))
 				]));
 			});
 		}
@@ -107,20 +133,22 @@ return view.extend({
 		var updateData = function() {
 			return Promise.all([
 				callGetBandwidth().catch(function() { return []; }),
-				callGetClients().catch(function() { return []; })
+				callGetClients().catch(function() { return []; }),
+				callGetSpeedLimits().catch(function() { return { limits: [] }; })
 			]).then(function(newData) {
 				var tbody = document.getElementById('cm-bw-tbody');
 				if (!tbody) return;
 
 				var newBw = newData[0] || [];
 				var newClients = newData[1] || [];
-				var newEntries = buildBandwidthEntries(newBw, newClients);
+				var newSpeedLimits = (newData[2] && newData[2].limits) ? newData[2].limits : [];
+				var newEntries = buildBandwidthEntries(newBw, newClients, newSpeedLimits);
 
 				var newBody = E('tbody', { 'id': 'cm-bw-tbody' });
 				if (newEntries.length === 0) {
 					newBody.appendChild(
 						E('tr', { 'class': 'tr placeholder' },
-							E('td', { 'class': 'td', 'colspan': '6',
+							E('td', { 'class': 'td', 'colspan': '7',
 								'style': 'text-align:center;padding:24px;' },
 								_('No active connected clients available.')))
 					);
@@ -134,7 +162,8 @@ return view.extend({
 							E('td', { 'class': 'td' }, formatBytes(e.tx)),
 							E('td', { 'class': 'td' }, formatBytes(e.rx)),
 							E('td', { 'class': 'td', 'style': 'font-weight:bold' },
-								formatBytes(e.bytes))
+								formatBytes(e.bytes)),
+							E('td', { 'class': 'td' }, formatSpeedLimitCell(e.dlLimit, e.ulLimit))
 						]));
 					});
 				}
@@ -181,7 +210,6 @@ return view.extend({
 			E('option', { 'value': '10000' }, _('10 sec'))
 		]);
 
-		// Always default to 5 sec (5000 ms) on page visit
 		startIntervalTimer(5000);
 
 		var dropdownStyleElem = E('style', {},
@@ -207,7 +235,8 @@ return view.extend({
 					E('th', { 'class': 'th' }, _('MAC')),
 					E('th', { 'class': 'th' }, _('Upload')),
 					E('th', { 'class': 'th' }, _('Download')),
-					E('th', { 'class': 'th' }, _('Total'))
+					E('th', { 'class': 'th' }, _('Total')),
+					E('th', { 'class': 'th' }, _('Speed Limit'))
 				])),
 				tableBody
 			])
