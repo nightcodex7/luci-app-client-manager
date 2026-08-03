@@ -1,48 +1,76 @@
 # luci-app-client-manager
 
-Central management interface for all connected clients on OpenWrt routers.
+[![OpenWrt Version](https://img.shields.io/badge/OpenWrt-21.02%20%7C%2022.03%20%7C%2023.05%20%7C%2024.10%20%7C%2025.12%2B-blue.svg)](https://openwrt.org)
+[![Backend](https://img.shields.io/badge/Backend-POSIX%20Shell-green.svg)](https://www.gnu.org/software/bash/)
+[![Dependencies](https://img.shields.io/badge/Dependencies-Zero%20External%20Runtimes-brightgreen.svg)]()
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](Makefile)
+[![Status](https://img.shields.io/badge/Production-Ready-success.svg)]()
 
-## Overview
+Centralized, high-performance client management application for OpenWrt routers. Monitor connected devices, organize custom metadata, control Wi-Fi access, block internet connectivity, track bandwidth usage, and view connection history.
 
-**luci-app-client-manager** is a comprehensive OpenWrt LuCI application designed for centralized device management. It merges data from DHCP leases, ARP tables, and wireless association lists into a unified interface, allowing network administrators to monitor, organize, and control connected devices.
+---
 
-The application adheres strictly to standard OpenWrt subsystems (UCI, fw4, dnsmasq, ubus, rpcd) without modifying system configurations or requiring invasive daemon changes.
+## 🌟 Key Features
 
-## Features
+- 📱 **Unified Device Dashboard**: Merges DHCP leases (`/tmp/dhcp.leases`), ARP table (`/proc/net/arp`), neighbor table (`ip neighbor`), and wireless associations into a single responsive table.
+- 🌐 **Dual IPv4 & IPv6 Support**: Automatically detects and displays both IPv4 and IPv6 addresses for connected devices.
+- ⚡ **Interactive Column Filtering**:
+  - **IP Filter**: Toggle between **IP Address (v4 & v6)**, **IPv4 Only**, and **IPv6 Only**.
+  - **Interface Filter**: Filter by **Wireless Only**, **Wired Only**, or specific interfaces (`br-lan`, `wlan0`, `br-guest`, etc.).
+  - **Lease Filter**: Filter by **Static Only** or **Dynamic Only**.
+  - **Status Filter**: Filter by **Online / Allowed** or **Blocked Only**.
+- 📶 **Multi-Engine Wireless Monitoring**: Queries `iwinfo`, `hostapd` ubus daemons, and Linux kernel `iw` station dump to guarantee signal strength (`dBm`) and wireless interface detection across all OpenWrt Wi-Fi hardware.
+- 🏷️ **Custom Metadata Management**: Assign custom display names, owners, notes, and icons (Laptop, Phone, TV, Desktop, Tablet, IoT, Printer, Camera, Gaming, Server).
+- 📶 **Wi-Fi Access Control**: Per-device MAC filtering across wireless radios using native OpenWrt UCI wireless settings.
+- 🛡️ **One-Click Firewall Blocking**: Instantly block or allow internet access per client using OpenWrt `fw4` UCI firewall rules.
+- 📊 **Bandwidth Consumption Tracking**: Real-time upload and download byte counters via `conntrack`.
+- 📈 **Traffic Statistics Integration**: Visual daily and monthly bandwidth reports powered by `vnstat` / `vnstat2`.
+- 📜 **Live Connection History**: Real-time DHCP join and leave event log powered by a lightweight `dnsmasq` hook.
+- 👥 **Client Grouping**: Categorize clients into groups with bulk access management.
 
-- **Unified Client Discovery**: Combines data from DHCP leases (`/tmp/dhcp.leases`), ARP entries (`/proc/net/arp`), and wireless associations (`iwinfo`) into a single view sorted by IP address.
-- **Custom Device Metadata**: Assign custom display names, device owners, notes, and device icons (Phone, Laptop, Desktop, Tablet, TV, IoT, Printer, Camera, Gaming, Server).
-- **WiFi Access Control**: Per-device MAC filter control across wireless AP interfaces using native UCI wireless configuration.
-- **Firewall Policies**: Block or allow internet access for individual devices using standard OpenWrt fw4 UCI firewall rules.
-- **Bandwidth Monitoring**: Live per-device upload and download byte tracking powered by netfilter connection tracking (`conntrack`).
-- **Device Grouping**: Organize clients into custom groups with description fields and bulk access settings.
-- **Connection History**: Event-based connection and disconnection log tracked via a lightweight `dnsmasq` DHCP hook script.
-- **Traffic Statistics**: Visual daily and monthly bandwidth reports integrated with `vnstat`.
+---
 
-## Quick Installation
+## ⚡ Quick Installation
 
-Run this one-liner via SSH on your OpenWrt router:
+### Method 1: CLI One-Liner (Recommended via SSH)
+
+Connect to your router via SSH and run:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main/install.sh | sh
 ```
 
-### Quick Uninstallation
-
-To completely remove the application and restore original settings:
+*(Or using curl if `wget` is not installed)*:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main/uninstall.sh | sh
+curl -sL https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main/install.sh | sh
 ```
+
+> **Note:** The installer automatically detects whether your system uses **`apk`** (OpenWrt 25.12+) or **`opkg`** (OpenWrt 24.10 and earlier) and installs missing system dependencies (`conntrack`) cleanly.
 
 ---
 
-## Alternative Installation Methods
+## 📦 Alternative Installation Methods
 
-### Package Manager Installation
+### Method 2: LuCI Web GUI Installation
+
+If you prefer installing via the router's web interface:
+
+1. Download the package file from the [Releases](https://github.com/nightcodex7/luci-app-client-manager/releases) page:
+   - For **OpenWrt 24.10 and earlier**: Download `luci-app-client-manager_0.1.0-1_all.ipk`
+   - For **OpenWrt 25.12 and newer**: Download `luci-app-client-manager-0.1.0-r1.apk`
+2. Open your router's LuCI Web Interface (`http://192.168.1.1`).
+3. Navigate to **System ➔ Software**.
+4. Click **Upload Package...**.
+5. Select the downloaded `.ipk` or `.apk` file and click **Upload**.
+6. Click **Install**.
+7. Refresh your browser page. **Clients** menu will now appear in the top navigation bar.
+
+---
+
+### Method 3: Command Line Package Installation (OPKG & APK)
 
 #### OPKG (OpenWrt 24.10 and earlier)
-
 ```bash
 opkg update
 opkg install luci-app-client-manager_0.1.0-1_all.ipk
@@ -51,70 +79,93 @@ opkg install luci-app-client-manager_0.1.0-1_all.ipk
 ```
 
 #### APK (OpenWrt 25.12 and newer)
-
 ```bash
 apk --update-cache add luci-app-client-manager-0.1.0-r1.apk
 /etc/init.d/rpcd restart
 /etc/init.d/uhttpd restart
 ```
 
-### Manual Installation from Source
+---
+
+### Method 4: Manual Installation from Source (Git Clone)
 
 ```bash
-# 1. Copy application files to the target router
+# 1. Clone repository
+git clone https://github.com/nightcodex7/luci-app-client-manager.git
+cd luci-app-client-manager
+
+# 2. Copy files to your router via SCP
 scp -r root/* root@192.168.1.1:/
 scp -r htdocs/* root@192.168.1.1:/www/
 
-# 2. Set executable permissions on backend scripts
-ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /usr/libexec/clientmanager-dhcp-hook"
+# 3. Set executable permissions and run initial configuration via SSH
+ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /usr/libexec/clientmanager-dhcp-hook /etc/uci-defaults/luci-app-client-manager && /etc/uci-defaults/luci-app-client-manager"
 
-# 3. Execute installation defaults
-ssh root@192.168.1.1 "/etc/uci-defaults/luci-app-client-manager"
-
-# 4. Enable DHCP event logging in dnsmasq
-ssh root@192.168.1.1 "uci set dhcp.@dnsmasq[0].dhcpscript='/usr/libexec/clientmanager-dhcp-hook' && uci commit dhcp"
-
-# 5. Restart system services
-ssh root@192.168.1.1 "/etc/init.d/rpcd restart && /etc/init.d/uhttpd restart && /etc/init.d/dnsmasq restart"
+# 4. Flush LuCI cache and restart services
+ssh root@192.168.1.1 "rm -f /tmp/luci-indexcache /tmp/luci-modulecache* && /etc/init.d/rpcd restart && sleep 1 && /etc/init.d/uhttpd restart"
 ```
 
-## Technology Stack and Architecture
+---
 
-| Layer | Component | Technology |
+### Method 5: Building Package from Source (OpenWrt SDK)
+
+To build `.ipk` or `.apk` packages using the OpenWrt SDK or Image Builder:
+
+```bash
+# Add package to your OpenWrt SDK package directory
+git clone https://github.com/nightcodex7/luci-app-client-manager.git package/luci-app-client-manager
+
+# Select package in menuconfig
+make menuconfig
+# LuCI -> 3. Applications -> luci-app-client-manager
+
+# Compile package
+make package/luci-app-client-manager/compile
+```
+
+---
+
+## 🗑️ Quick Uninstallation
+
+To completely remove the application, clean configuration hooks, and clear system caches:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main/uninstall.sh | sh
+```
+
+---
+
+## ⚙️ Technology & Zero-Dependency Architecture
+
+| Layer | Technology | Description |
 |---|---|---|
-| Frontend | UI Views | Modern LuCI Client-Side JavaScript (ES6) |
-| Backend | RPC Engine | `rpcd` Lua plugin (`/usr/libexec/rpcd/luci.clientmanager`) |
-| Access Control | Security | `rpcd` ACL definitions (`/usr/share/rpcd/acl.d/`) |
-| Metadata Store | Config | Custom UCI config file (`/etc/config/clientmanager`) |
-| Data Sources | System Calls | `ubus` (`iwinfo`), `/proc/net/arp`, `/tmp/dhcp.leases`, `conntrack`, `vnstat` |
-| Firewall | Filtering | OpenWrt `fw4` via UCI firewall objects (`/etc/config/firewall`) |
-| Event Tracking | Hook Script | POSIX shell script called by `dnsmasq` (`/usr/libexec/clientmanager-dhcp-hook`) |
+| **Frontend** | Vanilla JS (ES6) | Client-side LuCI JavaScript views (`/www/luci-static/resources/view/clientmanager/`) |
+| **Backend** | Pure POSIX Shell | `/usr/libexec/rpcd/luci.clientmanager` (Zero Lua/Python overhead) |
+| **ACL Security** | `rpcd` ACL | Access control definitions (`/usr/share/rpcd/acl.d/luci-app-client-manager.json`) |
+| **Menu Registration** | LuCI Menu JSON | Sub-menu mapping (`/usr/share/luci/menu.d/luci-app-client-manager.json`) |
+| **Storage** | OpenWrt UCI | Central configuration saved in `/etc/config/clientmanager` |
+| **Data Sources** | POSIX / ubus | `ubus` (`iwinfo`, `hostapd`), `iw`, `/proc/net/arp`, `ip neighbor`, `/tmp/dhcp.leases`, `conntrack` |
 
-## System Compatibility
+---
 
-- **OpenWrt Versions**: OpenWrt 21.02, 23.05, 24.10, 25.12+
-- **Package Managers**: Compatible with both **opkg** (OpenWrt 24.10 and earlier) and **apk** (OpenWrt 25.12+).
+## 📋 System Requirements & Compatibility
+
+- **Supported Firmware**: OpenWrt 21.02, 22.03, 23.05, 24.10, 25.12+ (and derivative builds like ImmortalWrt).
+- **Package Managers**: Fully compatible with both **`opkg`** and **`apk`**.
 - **Architecture**: Architecture independent (`LUCI_PKGARCH:=all`).
+- **Dependencies**: `luci-base`, `rpcd`, `rpcd-mod-luci`, `conntrack` *(Optional: `vnstat` / `vnstat2` for bandwidth statistics)*.
 
-### Package Dependencies
+---
 
-- `luci-base`
-- `rpcd`
-- `rpcd-mod-luci`
-- `conntrack`
-- `vnstat2` (optional, required for the Statistics view)
+## 📄 UCI Configuration Reference
 
-## Configuration
-
-Custom metadata and group definitions are stored in `/etc/config/clientmanager`.
-
-### UCI Configuration Example
+User-defined device metadata, notes, custom icons, and group definitions are cleanly stored in `/etc/config/clientmanager`:
 
 ```text
 config client
 	option mac 'AA:BB:CC:DD:EE:FF'
 	option name 'Living Room TV'
-	option owner 'John'
+	option owner 'Alice'
 	option icon 'tv'
 	option notes 'Connected via Ethernet'
 	list groups 'media'
@@ -122,11 +173,13 @@ config client
 config group
 	option id 'media'
 	option name 'Streaming Media'
-	option description 'Smart TVs and Streaming Sticks'
+	option description 'Smart TVs and Streaming Devices'
 	option block_internet '0'
 ```
 
-## Directory Structure
+---
+
+## 📂 Project Directory Layout
 
 ```text
 luci-app-client-manager/
@@ -168,6 +221,8 @@ luci-app-client-manager/
                     └── wifi.js
 ```
 
-## License
+---
 
-This project is licensed under the Apache License 2.0. See the `Makefile` for licensing information.
+## 📜 License
+
+This project is open-source and licensed under the **Apache License 2.0**.
