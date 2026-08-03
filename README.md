@@ -46,7 +46,7 @@ curl -sL https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/m
 
 ---
 
-## Installation Methods
+<!-- ## Installation Methods
 
 ### Method 2: Web GUI Installation
 
@@ -99,9 +99,9 @@ ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /etc/uci-def
 ssh root@192.168.1.1 "rm -f /tmp/luci-indexcache /tmp/luci-modulecache* && /etc/init.d/rpcd restart && sleep 1 && /etc/init.d/uhttpd restart"
 ```
 
----
+--- -->
 
-### Method 5: OpenWrt SDK / ImageBuilder Build
+### Method 2: OpenWrt SDK / ImageBuilder Build
 
 To include the package in a custom build:
 
@@ -132,7 +132,7 @@ wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/
 ## Architecture
 
 | Component | Technology | Role |
-|---|---|---|
+| --- | --- | --- |
 | **Frontend** | Vanilla JS (ES6) | Client-side views (`/www/luci-static/resources/view/clientmanager/`) |
 | **Backend** | POSIX Shell | `/usr/libexec/rpcd/luci.clientmanager` (RPC provider for `rpcd`) |
 | **ACL Security** | `rpcd` ACL | Access control rules (`/usr/share/rpcd/acl.d/luci-app-client-manager.json`) |
