@@ -32,6 +32,41 @@ function ipToLong(ip) {
 	return 999999999999;
 }
 
+function buildBandwidthEntries(bandwidth, clients) {
+	var bwMap = {};
+	bandwidth.forEach(function(b) {
+		if (b.ip) bwMap[b.ip] = b;
+	});
+
+	var entries = [];
+	clients.forEach(function(c) {
+		// Priority 1 & 2: Only connected active clients with valid non-loopback IPv4 addresses
+		if (!c.ip || c.ip === '127.0.0.1' || c.connected === false) return;
+
+		var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
+		entries.push({
+			displayName: c.hostname || c.ip,
+			ip: c.ip,
+			mac: c.mac || '—',
+			tx: bw.tx || 0,
+			rx: bw.rx || 0,
+			bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0))
+		});
+	});
+
+	// Priority 1: Connected devices' IPv4 addresses in ascending order
+	entries.sort(function(a, b) {
+		var numA = ipToLong(a.ip);
+		var numB = ipToLong(b.ip);
+		if (numA !== numB) {
+			return numA - numB;
+		}
+		return a.ip.localeCompare(b.ip);
+	});
+
+	return entries;
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -44,50 +79,7 @@ return view.extend({
 		var bandwidth = data[0] || [];
 		var clients = data[1] || [];
 
-		var bwMap = {};
-		bandwidth.forEach(function(b) {
-			if (b.ip) bwMap[b.ip] = b;
-		});
-
-		var entries = [];
-		var seenIps = {};
-
-		clients.forEach(function(c) {
-			if (!c.ip) return;
-			seenIps[c.ip] = true;
-			var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
-			entries.push({
-				displayName: c.hostname || c.ip,
-				ip: c.ip,
-				mac: c.mac || '—',
-				tx: bw.tx || 0,
-				rx: bw.rx || 0,
-				bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0))
-			});
-		});
-
-		bandwidth.forEach(function(b) {
-			if (b.ip && !seenIps[b.ip]) {
-				entries.push({
-					displayName: b.ip,
-					ip: b.ip,
-					mac: '—',
-					tx: b.tx || 0,
-					rx: b.rx || 0,
-					bytes: b.bytes || ((b.tx || 0) + (b.rx || 0))
-				});
-			}
-		});
-
-		entries.sort(function(a, b) {
-			var numA = ipToLong(a.ip);
-			var numB = ipToLong(b.ip);
-			if (numA !== numB) {
-				return numA - numB;
-			}
-			return (a.ip || '').localeCompare(b.ip || '');
-		});
-
+		var entries = buildBandwidthEntries(bandwidth, clients);
 		var tableBody = E('tbody', { 'id': 'cm-bw-tbody' });
 
 		if (entries.length === 0) {
@@ -95,7 +87,7 @@ return view.extend({
 				E('tr', { 'class': 'tr placeholder' },
 					E('td', { 'class': 'td', 'colspan': '6',
 						'style': 'text-align:center;padding:24px;' },
-						_('No active network clients or bandwidth data available.')))
+						_('No active connected clients available.')))
 			);
 		} else {
 			entries.forEach(function(e) {
@@ -122,47 +114,7 @@ return view.extend({
 
 				var newBw = newData[0] || [];
 				var newClients = newData[1] || [];
-				var newBwMap = {};
-				newBw.forEach(function(b) { if (b.ip) newBwMap[b.ip] = b; });
-
-				var newEntries = [];
-				var newSeenIps = {};
-
-				newClients.forEach(function(c) {
-					if (!c.ip) return;
-					newSeenIps[c.ip] = true;
-					var bw = newBwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
-					newEntries.push({
-						displayName: c.hostname || c.ip,
-						ip: c.ip,
-						mac: c.mac || '—',
-						tx: bw.tx || 0,
-						rx: bw.rx || 0,
-						bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0))
-					});
-				});
-
-				newBw.forEach(function(b) {
-					if (b.ip && !newSeenIps[b.ip]) {
-						newEntries.push({
-							displayName: b.ip,
-							ip: b.ip,
-							mac: '—',
-							tx: b.tx || 0,
-							rx: b.rx || 0,
-							bytes: b.bytes || ((b.tx || 0) + (b.rx || 0))
-						});
-					}
-				});
-
-				newEntries.sort(function(a, b) {
-					var numA = ipToLong(a.ip);
-					var numB = ipToLong(b.ip);
-					if (numA !== numB) {
-						return numA - numB;
-					}
-					return (a.ip || '').localeCompare(b.ip || '');
-				});
+				var newEntries = buildBandwidthEntries(newBw, newClients);
 
 				var newBody = E('tbody', { 'id': 'cm-bw-tbody' });
 				if (newEntries.length === 0) {
@@ -170,7 +122,7 @@ return view.extend({
 						E('tr', { 'class': 'tr placeholder' },
 							E('td', { 'class': 'td', 'colspan': '6',
 								'style': 'text-align:center;padding:24px;' },
-								_('No active network clients or bandwidth data available.')))
+								_('No active connected clients available.')))
 					);
 				} else {
 					newEntries.forEach(function(e) {
@@ -209,7 +161,7 @@ return view.extend({
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('Bandwidth Monitor')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('Current per-device bandwidth usage from connection tracking.')),
+				_('Current per-device bandwidth usage for active connected clients.')),
 			E('div', { 'style': 'margin-bottom:12px' }, refreshBtn),
 
 			E('table', { 'class': 'table' }, [
