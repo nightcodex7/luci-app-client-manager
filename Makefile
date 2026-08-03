@@ -9,7 +9,7 @@ LUCI_TITLE:=LuCI Client Manager
 LUCI_DESCRIPTION:=Central management interface for all connected clients. \
  View, search, and manage devices with WiFi access control, firewall policies, \
  bandwidth monitoring, grouping, and connection history.
-LUCI_DEPENDS:=+luci-base +rpcd +rpcd-mod-luci +conntrack
+LUCI_DEPENDS:=+luci-base +rpcd +rpcd-mod-luci +conntrack +lua
 LUCI_PKGARCH:=all
 
 PKG_NAME:=luci-app-client-manager

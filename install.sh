@@ -17,8 +17,18 @@ if command -v wget >/dev/null 2>&1; then
 elif command -v curl >/dev/null 2>&1; then
     FETCH="curl -sL -o"
 else
-    echo "Error: Neither wget nor curl is installed."
+    echo "Error: Neither wget nor curl is installed on this system."
     exit 1
+fi
+
+# Ensure Lua interpreter is installed (OpenWrt 25.12+ requires explicit lua package)
+if ! command -v lua >/dev/null 2>&1 && [ ! -x /usr/bin/lua ]; then
+    echo "[0/5] Lua interpreter not found. Installing lua package..."
+    if command -v opkg >/dev/null 2>&1; then
+        opkg update && opkg install lua || true
+    elif command -v apk >/dev/null 2>&1; then
+        apk --update-cache add lua || true
+    fi
 fi
 
 echo "[1/5] Preparing directory layout..."
@@ -29,10 +39,10 @@ mkdir -p /usr/share/luci/menu.d
 mkdir -p /usr/share/rpcd/acl.d
 mkdir -p /www/luci-static/resources/view/clientmanager
 
-# Clean up legacy backend script if upgrading from older version
+# Clean up legacy backend script if present from older versions
 rm -f /usr/libexec/rpcd/clientmanager
 
-echo "[2/5] Updating backend and configuration files..."
+echo "[2/5] Downloading backend and configuration files..."
 # Preserve existing user configuration (/etc/config/clientmanager) if present
 if [ ! -f /etc/config/clientmanager ]; then
     $FETCH /etc/config/clientmanager "$REPO_URL/root/etc/config/clientmanager"
@@ -44,13 +54,18 @@ $FETCH /usr/libexec/rpcd/luci.clientmanager "$REPO_URL/root/usr/libexec/rpcd/luc
 $FETCH /usr/share/luci/menu.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/luci/menu.d/luci-app-client-manager.json"
 $FETCH /usr/share/rpcd/acl.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/rpcd/acl.d/luci-app-client-manager.json"
 
-echo "[3/5] Updating frontend views..."
+echo "[3/5] Downloading frontend views..."
 for view in bandwidth dashboard details firewall groups history statistics wifi; do
     $FETCH "/www/luci-static/resources/view/clientmanager/${view}.js" \
         "$REPO_URL/htdocs/luci-static/resources/view/clientmanager/${view}.js"
 done
 
 echo "[4/5] Setting permissions and initial setup..."
+# Strip any DOS line endings that might prevent script execution
+sed -i 's/\r$//' /usr/libexec/rpcd/luci.clientmanager
+sed -i 's/\r$//' /usr/libexec/clientmanager-dhcp-hook
+sed -i 's/\r$//' /etc/uci-defaults/luci-app-client-manager
+
 chmod +x /usr/libexec/rpcd/luci.clientmanager /usr/libexec/clientmanager-dhcp-hook /etc/uci-defaults/luci-app-client-manager
 
 # Run initial setup script if present
@@ -58,7 +73,7 @@ if [ -f /etc/uci-defaults/luci-app-client-manager ]; then
     /etc/uci-defaults/luci-app-client-manager
 fi
 
-# Ensure dnsmasq DHCP hook is configured without unnecessary reloads
+# Ensure dnsmasq DHCP hook is configured
 NEED_DNSMASQ_RELOAD=0
 CURRENT_HOOK=$(uci -q get dhcp.@dnsmasq[0].dhcpscript || true)
 if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
@@ -67,13 +82,13 @@ if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
     NEED_DNSMASQ_RELOAD=1
 fi
 
-echo "[5/5] Flushing LuCI cache and reloading RPC service..."
+echo "[5/5] Flushing LuCI cache and restarting rpcd..."
 # Clear LuCI index and module caches to force interface refresh
 rm -f /tmp/luci-indexcache /tmp/luci-modulecache*
 
-# Reload rpcd and uhttpd safely (non-disruptive to active network/wifi connections)
-/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart
-/etc/init.d/uhttpd reload 2>/dev/null || /etc/init.d/uhttpd restart
+# Restart rpcd daemon so it registers /usr/libexec/rpcd/luci.clientmanager on ubus
+/etc/init.d/rpcd restart
+/etc/init.d/uhttpd restart
 
 if [ "$NEED_DNSMASQ_RELOAD" -eq 1 ]; then
     /etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart
