@@ -42,6 +42,7 @@ if [ "$1" = "call" ]; then
 			TMP_WL="/tmp/cm_wl_$$.txt"
 			rm -f "$TMP_WL"
 			if command -v ubus >/dev/null 2>&1; then
+				# Method 1: iwinfo ubus
 				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
 				for d in $DEVS; do
 					ubus call iwinfo assoclist "{\"device\":\"$d\"}" 2>/dev/null | \
@@ -52,13 +53,85 @@ if [ "$1" = "call" ]; then
 							/noise=/ { noise=substr($0, 7) }
 							{
 								if (mac && sig) {
-									print mac " " dev " " sig " " noise
+									print mac " " dev " " sig " " (noise ? noise : "-95")
 									mac=""; sig=""; noise=""
 								}
 							}
 						' >> "$TMP_WL" 2>/dev/null || true
 				done
+
+				# Method 2: hostapd ubus
+				HDEVS=$(ubus list 2>/dev/null | grep '^hostapd\.' | cut -d. -f2- || true)
+				for hd in $HDEVS; do
+					ubus call "hostapd.$hd" get_clients 2>/dev/null | \
+						jsonfilter -e '@.clients[*]' 2>/dev/null | \
+						awk -v dev="$hd" '
+							/mac=/ { mac=toupper(substr($0, 5)) }
+							/signal=/ { sig=substr($0, 8) }
+							{
+								if (mac && sig) {
+									print mac " " dev " " sig " -95"
+									mac=""; sig=""
+								}
+							}
+						' >> "$TMP_WL" 2>/dev/null || true
+				done
 			fi
+
+			# Method 3: iw station dump
+			if command -v iw >/dev/null 2>&1; then
+				IW_DEVS=$(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}')
+				for id in $IW_DEVS; do
+					iw dev "$id" station dump 2>/dev/null | awk -v dev="$id" '
+						/^Station/ { mac=toupper($2) }
+						/signal:/ {
+							sig=$2
+							if (mac && sig) {
+								print mac " " dev " " sig " -95"
+								mac=""; sig=""
+							}
+						}
+					' >> "$TMP_WL" 2>/dev/null || true
+				done
+			fi
+
+			# Gather IPv6 addresses
+			TMP_IP6="/tmp/cm_ip6_$$.txt"
+			rm -f "$TMP_IP6"
+
+			if command -v ip >/dev/null 2>&1; then
+				ip -6 neighbor show 2>/dev/null | awk '{
+					ip6 = $1
+					mac = ""
+					for (i=1; i<=NF; i++) {
+						if ($i == "lladdr" && (i+1)<=NF) mac = toupper($(i+1))
+					}
+					if (mac != "" && length(mac) == 17 && ip6 !~ /^fe80/) {
+						print mac " " ip6
+					}
+				}' >> "$TMP_IP6" 2>/dev/null || true
+			fi
+
+			for f in /tmp/hosts/odhcpd /var/etc/odhcpd.leases /tmp/dhcp.leases; do
+				if [ -f "$f" ]; then
+					awk '
+						/mac=/ {
+							ip6 = $1
+							for (i=1; i<=NF; i++) {
+								if ($i ~ /^mac=/) {
+									mac = toupper(substr($i, 5))
+									if (mac != "" && ip6 ~ /:/ && ip6 !~ /^fe80/) print mac " " ip6
+								}
+							}
+						}
+						NF >= 4 && $3 ~ /:/ {
+							mac = toupper($2)
+							ip6 = $3
+							if (length(mac) == 17 && ip6 !~ /^fe80/) print mac " " ip6
+						}
+					' "$f" >> "$TMP_IP6" 2>/dev/null || true
+				fi
+			done
 
 			TMP_UCI="/tmp/cm_uci_$$.txt"
 			rm -f "$TMP_UCI"
@@ -87,12 +160,18 @@ if [ "$1" = "call" ]; then
 				done
 			fi
 
+			DEF_IFACE="br-lan"
+			if command -v uci >/dev/null 2>&1; then
+				D_IF=$(uci -q get network.lan.device 2>/dev/null || uci -q get network.lan.ifname 2>/dev/null || true)
+				[ -n "$D_IF" ] && DEF_IFACE="$D_IF"
+			fi
+
 			LEASE_FILE="/tmp/dhcp.leases"
 			ARP_FILE="/proc/net/arp"
 			[ -f "$LEASE_FILE" ] || LEASE_FILE="/dev/null"
 			[ -f "$ARP_FILE" ] || ARP_FILE="/dev/null"
 
-			awk -v wl_file="$TMP_WL" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" '
+			awk -v wl_file="$TMP_WL" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" -v def_if="$DEF_IFACE" '
 			BEGIN {
 				print "{\"clients\":["
 				first = 1
@@ -101,14 +180,25 @@ if [ "$1" = "call" ]; then
 					while ((getline < wl_file) > 0) {
 						m = toupper($1)
 						if (m != "") {
-							wl_if[m] = $2
-							wl_sig[m] = $3
-							wl_noise[m] = $4
+							if (!wl_if[m]) wl_if[m] = $2
+							if (!wl_sig[m]) wl_sig[m] = $3
+							if (!wl_noise[m]) wl_noise[m] = $4
 							wl_is[m] = 1
 							seen[m] = 1
 						}
 					}
 					close(wl_file)
+				}
+
+				if (ip6_file != "") {
+					while ((getline < ip6_file) > 0) {
+						m = toupper($1)
+						if (m != "") {
+							if (!ip6[m]) ip6[m] = $2
+							seen[m] = 1
+						}
+					}
+					close(ip6_file)
 				}
 
 				if (uci_file != "") {
@@ -167,20 +257,25 @@ if [ "$1" = "call" ]; then
 					if (!first) printf ","
 					first = 0
 
-					if_name = wl_if[m] ? wl_if[m] : (iface[m] ? iface[m] : "")
+					if_name = wl_if[m] ? wl_if[m] : (iface[m] ? iface[m] : def_if)
 					is_wl = wl_is[m] ? "true" : "false"
 					sig_str = wl_sig[m] ? wl_sig[m] : "null"
 					noise_str = wl_noise[m] ? wl_noise[m] : "null"
 
-					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s}",
-						m, ip[m], host[m], meta_name[m], meta_owner[m], meta_icon[m],
+					h = host[m]; gsub(/\\/, "\\\\", h); gsub(/"/, "\\\"", h)
+					mn = meta_name[m]; gsub(/\\/, "\\\\", mn); gsub(/"/, "\\\"", mn)
+					mo = meta_owner[m]; gsub(/\\/, "\\\\", mo); gsub(/"/, "\\\"", mo)
+					mi = meta_icon[m]; gsub(/\\/, "\\\\", mi); gsub(/"/, "\\\"", mi)
+
+					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s}",
+						m, ip[m], ip6[m], h, mn, mo, mi,
 						(lease_exp[m] ? lease_exp[m] : "0"), if_name, is_wl, sig_str, noise_str
 				}
 				print "]}"
 			}
 			' "$LEASE_FILE" "$ARP_FILE" > "$TMP_FILE" 2>/dev/null
 
-			rm -f "$TMP_WL" "$TMP_UCI" "$TMP_META"
+			rm -f "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_META"
 
 			if [ -s "$TMP_FILE" ]; then
 				cat "$TMP_FILE"
@@ -198,6 +293,7 @@ if [ "$1" = "call" ]; then
 			fi
 
 			IP=""
+			IP6=""
 			HOST=""
 			LEASE_EXP="0"
 			IFACE=""
@@ -216,6 +312,11 @@ if [ "$1" = "call" ]; then
 				fi
 			fi
 
+			# IPv6 check
+			if command -v ip >/dev/null 2>&1; then
+				IP6=$(ip -6 neighbor show 2>/dev/null | grep -i "$MAC" | awk '{print $1}' | grep -v '^fe80' | head -n 1 || true)
+			fi
+
 			# ARP table
 			if [ -f /proc/net/arp ]; then
 				ALINE=$(grep -i "$MAC" /proc/net/arp | head -n 1)
@@ -225,7 +326,7 @@ if [ "$1" = "call" ]; then
 				fi
 			fi
 
-			# Wireless check
+			# Wireless check (iwinfo + hostapd + iw)
 			if command -v ubus >/dev/null 2>&1; then
 				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
 				for d in $DEVS; do
@@ -240,6 +341,46 @@ if [ "$1" = "call" ]; then
 						break
 					fi
 				done
+
+				if [ "$IS_WL" = "false" ]; then
+					HDEVS=$(ubus list 2>/dev/null | grep '^hostapd\.' | cut -d. -f2- || true)
+					for hd in $HDEVS; do
+						CLIENTS=$(ubus call "hostapd.$hd" get_clients 2>/dev/null || true)
+						if echo "$CLIENTS" | grep -qi "$MAC" 2>/dev/null; then
+							IS_WL="true"
+							IFACE="$hd"
+							SIG_VAL=$(echo "$CLIENTS" | jsonfilter -e "@.clients[@.mac='$MAC'].signal" 2>/dev/null || true)
+							[ -n "$SIG_VAL" ] && SIG="$SIG_VAL"
+							break
+						fi
+					done
+				fi
+			fi
+
+			if [ "$IS_WL" = "false" ] && command -v iw >/dev/null 2>&1; then
+				IW_DEVS=$(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}')
+				for id in $IW_DEVS; do
+					ST_DUMP=$(iw dev "$id" station dump 2>/dev/null || true)
+					if echo "$ST_DUMP" | grep -qi "$MAC" 2>/dev/null; then
+						IS_WL="true"
+						IFACE="$id"
+						SIG_VAL=$(echo "$ST_DUMP" | awk -v mac="$MAC" '
+							/^Station/ { curr=toupper($2) }
+							/signal:/ { if (curr == mac) print $2 }
+						' | head -n 1 || true)
+						[ -n "$SIG_VAL" ] && SIG="$SIG_VAL"
+						break
+					fi
+				done
+			fi
+
+			if [ -z "$IFACE" ]; then
+				DEF_IF="br-lan"
+				if command -v uci >/dev/null 2>&1; then
+					D_IF=$(uci -q get network.lan.device 2>/dev/null || uci -q get network.lan.ifname 2>/dev/null || true)
+					[ -n "$D_IF" ] && DEF_IF="$D_IF"
+				fi
+				IFACE="$DEF_IF"
 			fi
 
 			# Load UCI metadata
@@ -293,8 +434,8 @@ if [ "$1" = "call" ]; then
 			ESC_ICON=$(json_esc "$CM_ICON")
 			ESC_IFACE=$(json_esc "$IFACE")
 
-			printf '{"client":{"mac":"%s","ip":"%s","hostname":"%s","name":"%s","owner":"%s","notes":"%s","icon":"%s","groups":%s,"expires":%s,"interface":"%s","wireless":%s,"signal":%s,"noise":%s}}\n' \
-				"$MAC" "$IP" "$ESC_HOST" "$ESC_NAME" "$ESC_OWNER" "$ESC_NOTES" "$ESC_ICON" "$CM_GROUPS" "$LEASE_EXP" "$ESC_IFACE" "$IS_WL" "$SIG" "$NOISE"
+			printf '{"client":{"mac":"%s","ip":"%s","ip6":"%s","hostname":"%s","name":"%s","owner":"%s","notes":"%s","icon":"%s","groups":%s,"expires":%s,"interface":"%s","wireless":%s,"signal":%s,"noise":%s}}\n' \
+				"$MAC" "$IP" "$IP6" "$ESC_HOST" "$ESC_NAME" "$ESC_OWNER" "$ESC_NOTES" "$ESC_ICON" "$CM_GROUPS" "$LEASE_EXP" "$ESC_IFACE" "$IS_WL" "$SIG" "$NOISE"
 			;;
 
 		setClientMeta)

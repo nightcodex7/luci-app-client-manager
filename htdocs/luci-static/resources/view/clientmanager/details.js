@@ -233,8 +233,13 @@ return view.extend({
 			]),
 			E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td', 'style': 'font-weight:bold' },
-					_('IP Address')),
+					_('IPv4 Address')),
 				E('td', { 'class': 'td' }, client.ip || '—')
+			]),
+			E('tr', { 'class': 'tr' }, [
+				E('td', { 'class': 'td', 'style': 'font-weight:bold' },
+					_('IPv6 Address')),
+				E('td', { 'class': 'td' }, client.ip6 ? E('code', { 'style': 'font-size:0.85em;' }, client.ip6) : '—')
 			]),
 			E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td', 'style': 'font-weight:bold' },

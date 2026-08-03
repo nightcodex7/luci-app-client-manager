@@ -78,10 +78,27 @@ return view.extend({
 			'id': 'cm-search'
 		});
 
+		var ipFilterSelect = E('select', {
+			'class': 'cbi-input-select',
+			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'id': 'cm-ip-filter',
+			'change': function(ev) {
+				ev.stopPropagation();
+				applyFilters();
+			},
+			'click': function(ev) {
+				ev.stopPropagation();
+			}
+		}, [
+			E('option', { 'value': 'all', 'selected': 'selected' }, _('IP Address (v4 & v6)')),
+			E('option', { 'value': 'v4' }, _('IPv4 Only')),
+			E('option', { 'value': 'v6' }, _('IPv6 Only'))
+		]);
+
 		var tableHead = E('tr', { 'class': 'tr table-titles' }, [
 			E('th', { 'class': 'th' }, ''),
 			E('th', { 'class': 'th' }, _('Name / Hostname')),
-			E('th', { 'class': 'th' }, _('IP Address')),
+			E('th', { 'class': 'th', 'style': 'cursor:pointer;' }, ipFilterSelect),
 			E('th', { 'class': 'th' }, _('MAC Address')),
 			E('th', { 'class': 'th' }, _('Interface')),
 			E('th', { 'class': 'th' }, _('Signal')),
@@ -100,7 +117,54 @@ return view.extend({
 			);
 		}
 
+		var clientMap = {};
+
+		function renderIpCellContent(c, mode) {
+			var ip4 = c.ip || '';
+			var ip6 = c.ip6 || '';
+			if (mode === 'v4') return ip4 || '—';
+			if (mode === 'v6') return ip6 ? E('code', { 'style': 'font-size:0.85em;' }, ip6) : '—';
+			if (ip4 && ip6) {
+				return E('div', {}, [
+					E('span', {}, ip4),
+					E('br'),
+					E('small', { 'style': 'opacity:0.75;font-family:monospace;' }, ip6)
+				]);
+			}
+			return ip4 || (ip6 ? E('code', { 'style': 'font-size:0.85em;' }, ip6) : '—');
+		}
+
+		function applyFilters() {
+			var term = (searchInput.value || '').toLowerCase().trim();
+			var filter = ipFilterSelect.value || 'all';
+
+			var rows = tableBody.querySelectorAll('tr[data-mac]');
+			rows.forEach(function(row) {
+				var mac = row.getAttribute('data-mac');
+				var c = clientMap[mac];
+				if (!c) return;
+
+				var hasV4 = !!c.ip;
+				var hasV6 = !!c.ip6;
+
+				var matchesProtocol = true;
+				if (filter === 'v4' && !hasV4) matchesProtocol = false;
+				if (filter === 'v6' && !hasV6) matchesProtocol = false;
+
+				var searchData = row.getAttribute('data-search') || '';
+				var matchesSearch = !term || searchData.indexOf(term) > -1;
+
+				row.style.display = (matchesProtocol && matchesSearch) ? '' : 'none';
+
+				var ipTd = row.querySelector('.cm-ip-td');
+				if (ipTd) {
+					dom.content(ipTd, renderIpCellContent(c, filter));
+				}
+			});
+		}
+
 		clients.forEach(function(c) {
+			clientMap[c.mac] = c;
 			var displayName = c.name || c.hostname || _('Unknown');
 			var subtitle = c.name ? (c.hostname || '') : '';
 			var blocked = blockedMacs[c.mac] || false;
@@ -117,16 +181,16 @@ return view.extend({
 					(blocked ? 'opacity:0.5;' : ''),
 				'data-mac': c.mac,
 				'data-search': [
-					displayName, c.hostname, c.ip, c.mac, c.owner
+					displayName, c.hostname, c.ip, c.ip6, c.mac, c.owner
 				].join(' ').toLowerCase(),
-				'click': function() {
+				'click': function(ev) {
 					window.location.href = L.url('admin/clientmanager/details') + '?mac=' + encodeURIComponent(c.mac);
 				}
 			}, [
 				E('td', { 'class': 'td', 'style': 'font-size:1.3em;text-align:center;width:40px;' },
 					deviceIcon(c)),
 				nameCell,
-				E('td', { 'class': 'td' }, c.ip || '—'),
+				E('td', { 'class': 'td cm-ip-td' }, renderIpCellContent(c, 'all')),
 				E('td', { 'class': 'td' },
 					E('code', { 'style': 'font-size:0.85em' }, c.mac)),
 				E('td', { 'class': 'td' }, c.interface || '—'),
@@ -142,15 +206,7 @@ return view.extend({
 			tableBody.appendChild(row);
 		});
 
-		searchInput.addEventListener('input', function() {
-			var term = this.value.toLowerCase().trim();
-			var rows = tableBody.querySelectorAll('tr[data-mac]');
-			rows.forEach(function(row) {
-				var data = row.getAttribute('data-search') || '';
-				row.style.display = (!term || data.indexOf(term) > -1)
-					? '' : 'none';
-			});
-		});
+		searchInput.addEventListener('input', applyFilters);
 
 		var tbl = E('table', { 'class': 'table', 'id': 'cm-client-table' }, [
 			E('thead', {}, tableHead),
