@@ -40,7 +40,7 @@ return view.extend({
 		var macSelect = E('select', {
 			'class': 'cbi-input-select cm-dropdown',
 			'id': 'cm-wifi-mac',
-			'style': 'min-width:300px;margin-bottom:16px;'
+			'style': 'min-width:300px;margin-bottom:16px;font-size:1em;padding:6px 10px;'
 		});
 
 		macSelect.appendChild(E('option', { 'value': '' },
@@ -63,21 +63,18 @@ return view.extend({
 
 		Object.keys(byRadio).sort().forEach(function(radio) {
 			var radioDiv = E('fieldset', { 'class': 'cbi-section' }, [
-				E('legend', {}, radio)
+				E('legend', { 'style': 'font-size:1.1em;font-weight:bold;' }, radio)
 			]);
 
 			byRadio[radio].forEach(function(iface) {
 				if (iface.disabled === '1') return;
-
-				var maclistStr = Array.isArray(iface.maclist)
-					? iface.maclist.join(', ') : '';
 
 				var row = E('div', {
 					'class': 'cbi-value',
 					'data-section': iface.section,
 					'data-maclist': JSON.stringify(iface.maclist || [])
 				}, [
-					E('label', { 'class': 'cbi-value-title' },
+					E('label', { 'class': 'cbi-value-title', 'style': 'font-size:1.05em;font-weight:600;' },
 						iface.ssid || iface.section),
 					E('div', { 'class': 'cbi-value-field' }, [
 						E('input', {
@@ -85,14 +82,10 @@ return view.extend({
 							'class': 'cm-wifi-cb',
 							'data-section': iface.section,
 							'disabled': 'disabled',
-							'style': 'margin-right:8px;cursor:pointer;'
+							'style': 'margin-right:8px;cursor:pointer;transform:scale(1.2);vertical-align:middle;'
 						}),
-						E('span', { 'style': 'opacity:0.6;font-size:0.85em' },
-							_('Filter mode: ') + (iface.macfilter || 'disable')),
-						maclistStr
-							? E('div', { 'style': 'font-size:0.8em;opacity:0.5;margin-top:2px' },
-								_('Current list: ') + maclistStr)
-							: ''
+						E('span', { 'style': 'opacity:0.85;font-size:1em;vertical-align:middle;' },
+							_('Filter mode: ') + (iface.macfilter || 'disable'))
 					])
 				]);
 				radioDiv.appendChild(row);
@@ -177,7 +170,7 @@ return view.extend({
 
 			E('div', { 'class': 'cbi-section' }, [
 				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('Device')),
+					E('label', { 'class': 'cbi-value-title', 'style': 'font-size:1.05em;font-weight:600;' }, _('Device')),
 					E('div', { 'class': 'cbi-value-field' }, macSelect)
 				])
 			]),
