@@ -150,19 +150,60 @@ return view.extend({
 			'click': function() { updateData(); }
 		}, _('↻ Refresh'));
 
-		var timer = window.setInterval(function() {
-			if (!document.getElementById('cm-bw-tbody')) {
-				window.clearInterval(timer);
-				return;
+		var savedInterval = parseInt(localStorage.getItem('cm_bw_refresh_interval'), 10);
+		if (isNaN(savedInterval) || [1000, 5000, 10000].indexOf(savedInterval) === -1) {
+			savedInterval = 5000;
+		}
+
+		var selectStyle = 'font-weight:bold;background-color:var(--background-color-medium, #2b2b2b);color:var(--text-color-high, #ffffff);border:1px solid var(--border-color-medium, #555);border-radius:4px;padding:4px 8px;cursor:pointer;margin-left:8px;';
+
+		var currentTimer = null;
+
+		function startIntervalTimer(ms) {
+			if (currentTimer) {
+				window.clearInterval(currentTimer);
+				currentTimer = null;
 			}
-			updateData();
-		}, 10000);
+			currentTimer = window.setInterval(function() {
+				if (!document.getElementById('cm-bw-tbody')) {
+					if (currentTimer) window.clearInterval(currentTimer);
+					return;
+				}
+				updateData();
+			}, ms);
+		}
+
+		var intervalSelect = E('select', {
+			'class': 'cbi-input-select',
+			'style': selectStyle,
+			'change': function(ev) {
+				var val = parseInt(ev.target.value, 10);
+				localStorage.setItem('cm_bw_refresh_interval', val);
+				startIntervalTimer(val);
+			}
+		}, [
+			E('option', { 'value': '1000', 'selected': savedInterval === 1000 ? 'selected' : null }, _('1 sec')),
+			E('option', { 'value': '5000', 'selected': savedInterval === 5000 ? 'selected' : null }, _('5 sec (default)')),
+			E('option', { 'value': '10000', 'selected': savedInterval === 10000 ? 'selected' : null }, _('10 sec'))
+		]);
+
+		startIntervalTimer(savedInterval);
+
+		var dropdownStyleElem = E('style', {},
+			'select.cbi-input-select option { background-color: #2b2b2b !important; color: #ffffff !important; }\n' +
+			'body:not([data-theme="dark"]) select.cbi-input-select option { background-color: #ffffff !important; color: #333333 !important; }'
+		);
 
 		return E('div', { 'class': 'cbi-map' }, [
+			dropdownStyleElem,
 			E('h2', {}, _('Bandwidth Monitor')),
 			E('div', { 'class': 'cbi-map-descr' },
 				_('Current per-device bandwidth usage for active connected clients.')),
-			E('div', { 'style': 'margin-bottom:12px' }, refreshBtn),
+			E('div', { 'style': 'margin-bottom:12px;display:flex;align-items:center;' }, [
+				refreshBtn,
+				E('label', { 'style': 'margin-left:12px;font-size:0.9em;opacity:0.85;' }, _('Refresh Interval:')),
+				intervalSelect
+			]),
 
 			E('table', { 'class': 'table' }, [
 				E('thead', {}, E('tr', { 'class': 'tr table-titles' }, [
