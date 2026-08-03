@@ -103,21 +103,16 @@ return view.extend({
 		var clients = data[0] || [];
 		var rules = data[1] || [];
 
-		// Sort clients: 1. Connected first, 2. Ascending numerical IP
+		// Sort clients strictly by IP in ascending order
 		clients.sort(function(a, b) {
-			var aConn = (a.connected !== false) ? 1 : 0;
-			var bConn = (b.connected !== false) ? 1 : 0;
-			if (aConn !== bConn) {
-				return bConn - aConn;
-			}
-
 			var numA = ipToLong(a.ip);
 			var numB = ipToLong(b.ip);
 			if (numA !== numB) {
 				return numA - numB;
 			}
-
-			return (a.mac || '').localeCompare(b.mac || '');
+			var ipStrA = a.ip || a.ip6 || '';
+			var ipStrB = b.ip || b.ip6 || '';
+			return ipStrA.localeCompare(ipStrB);
 		});
 
 		var blockedMacs = {};

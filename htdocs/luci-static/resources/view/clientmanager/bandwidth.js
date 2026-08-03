@@ -23,6 +23,15 @@ function formatBytes(bytes) {
 	return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
 }
 
+function ipToLong(ip) {
+	if (!ip) return 999999999999;
+	var p = ip.split('.');
+	if (p.length === 4) {
+		return (+p[0] * 16777216) + (+p[1] * 65536) + (+p[2] * 256) + (+p[3]);
+	}
+	return 999999999999;
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -70,7 +79,14 @@ return view.extend({
 			}
 		});
 
-		entries.sort(function(a, b) { return b.bytes - a.bytes; });
+		entries.sort(function(a, b) {
+			var numA = ipToLong(a.ip);
+			var numB = ipToLong(b.ip);
+			if (numA !== numB) {
+				return numA - numB;
+			}
+			return (a.ip || '').localeCompare(b.ip || '');
+		});
 
 		var tableBody = E('tbody', { 'id': 'cm-bw-tbody' });
 
@@ -139,7 +155,14 @@ return view.extend({
 					}
 				});
 
-				newEntries.sort(function(a, b) { return b.bytes - a.bytes; });
+				newEntries.sort(function(a, b) {
+					var numA = ipToLong(a.ip);
+					var numB = ipToLong(b.ip);
+					if (numA !== numB) {
+						return numA - numB;
+					}
+					return (a.ip || '').localeCompare(b.ip || '');
+				});
 
 				var newBody = E('tbody', { 'id': 'cm-bw-tbody' });
 				if (newEntries.length === 0) {
@@ -164,7 +187,7 @@ return view.extend({
 					});
 				}
 
-				dom.content(tbody, newBody.childNodes);
+				dom.content(tbody, Array.prototype.slice.call(newBody.children));
 			}).catch(function() {
 				// Silently handle error
 			});
