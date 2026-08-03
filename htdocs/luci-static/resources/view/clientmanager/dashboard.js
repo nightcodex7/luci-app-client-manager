@@ -95,15 +95,76 @@ return view.extend({
 			E('option', { 'value': 'v6' }, _('IPv6 Only'))
 		]);
 
+		var ifaceOptions = [
+			E('option', { 'value': 'all', 'selected': 'selected' }, _('Interface (All)')),
+			E('option', { 'value': 'wireless' }, _('Wireless Only')),
+			E('option', { 'value': 'wired' }, _('Wired Only'))
+		];
+
+		var uniqueIfaces = {};
+		clients.forEach(function(c) {
+			if (c.interface) uniqueIfaces[c.interface] = true;
+		});
+		Object.keys(uniqueIfaces).sort().forEach(function(ifName) {
+			ifaceOptions.push(E('option', { 'value': ifName }, ifName));
+		});
+
+		var ifaceFilterSelect = E('select', {
+			'class': 'cbi-input-select',
+			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'id': 'cm-iface-filter',
+			'change': function(ev) {
+				ev.stopPropagation();
+				applyFilters();
+			},
+			'click': function(ev) {
+				ev.stopPropagation();
+			}
+		}, ifaceOptions);
+
+		var leaseFilterSelect = E('select', {
+			'class': 'cbi-input-select',
+			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'id': 'cm-lease-filter',
+			'change': function(ev) {
+				ev.stopPropagation();
+				applyFilters();
+			},
+			'click': function(ev) {
+				ev.stopPropagation();
+			}
+		}, [
+			E('option', { 'value': 'all', 'selected': 'selected' }, _('Lease (All)')),
+			E('option', { 'value': 'static' }, _('Static Only')),
+			E('option', { 'value': 'dynamic' }, _('Dynamic Only'))
+		]);
+
+		var statusFilterSelect = E('select', {
+			'class': 'cbi-input-select',
+			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'id': 'cm-status-filter',
+			'change': function(ev) {
+				ev.stopPropagation();
+				applyFilters();
+			},
+			'click': function(ev) {
+				ev.stopPropagation();
+			}
+		}, [
+			E('option', { 'value': 'all', 'selected': 'selected' }, _('Status (All)')),
+			E('option', { 'value': 'online' }, _('Online / Allowed')),
+			E('option', { 'value': 'blocked' }, _('Blocked Only'))
+		]);
+
 		var tableHead = E('tr', { 'class': 'tr table-titles' }, [
 			E('th', { 'class': 'th' }, ''),
 			E('th', { 'class': 'th' }, _('Name / Hostname')),
-			E('th', { 'class': 'th', 'style': 'cursor:pointer;' }, ipFilterSelect),
+			E('th', { 'class': 'th' }, ipFilterSelect),
 			E('th', { 'class': 'th' }, _('MAC Address')),
-			E('th', { 'class': 'th' }, _('Interface')),
+			E('th', { 'class': 'th' }, ifaceFilterSelect),
 			E('th', { 'class': 'th' }, _('Signal')),
-			E('th', { 'class': 'th' }, _('Lease')),
-			E('th', { 'class': 'th' }, _('Status'))
+			E('th', { 'class': 'th' }, leaseFilterSelect),
+			E('th', { 'class': 'th' }, statusFilterSelect)
 		]);
 
 		var tableBody = E('tbody', { 'id': 'cm-client-tbody' });
@@ -136,7 +197,10 @@ return view.extend({
 
 		function applyFilters() {
 			var term = (searchInput.value || '').toLowerCase().trim();
-			var filter = ipFilterSelect.value || 'all';
+			var ipFilter = ipFilterSelect.value || 'all';
+			var ifaceFilter = ifaceFilterSelect.value || 'all';
+			var leaseFilter = leaseFilterSelect.value || 'all';
+			var statusFilter = statusFilterSelect.value || 'all';
 
 			var rows = tableBody.querySelectorAll('tr[data-mac]');
 			rows.forEach(function(row) {
@@ -144,21 +208,37 @@ return view.extend({
 				var c = clientMap[mac];
 				if (!c) return;
 
-				var hasV4 = !!c.ip;
-				var hasV6 = !!c.ip6;
+				var isBlocked = !!blockedMacs[c.mac];
+				var isDynamic = (c.expires && c.expires > 0);
 
-				var matchesProtocol = true;
-				if (filter === 'v4' && !hasV4) matchesProtocol = false;
-				if (filter === 'v6' && !hasV6) matchesProtocol = false;
+				var matchesIp = true;
+				if (ipFilter === 'v4' && !c.ip) matchesIp = false;
+				if (ipFilter === 'v6' && !c.ip6) matchesIp = false;
+
+				var matchesIface = true;
+				if (ifaceFilter === 'wireless' && !c.wireless) matchesIface = false;
+				if (ifaceFilter === 'wired' && c.wireless) matchesIface = false;
+				if (ifaceFilter !== 'all' && ifaceFilter !== 'wireless' && ifaceFilter !== 'wired') {
+					if (c.interface !== ifaceFilter) matchesIface = false;
+				}
+
+				var matchesLease = true;
+				if (leaseFilter === 'static' && isDynamic) matchesLease = false;
+				if (leaseFilter === 'dynamic' && !isDynamic) matchesLease = false;
+
+				var matchesStatus = true;
+				if (statusFilter === 'online' && isBlocked) matchesStatus = false;
+				if (statusFilter === 'blocked' && !isBlocked) matchesStatus = false;
 
 				var searchData = row.getAttribute('data-search') || '';
 				var matchesSearch = !term || searchData.indexOf(term) > -1;
 
-				row.style.display = (matchesProtocol && matchesSearch) ? '' : 'none';
+				var showRow = matchesIp && matchesIface && matchesLease && matchesStatus && matchesSearch;
+				row.style.display = showRow ? '' : 'none';
 
 				var ipTd = row.querySelector('.cm-ip-td');
 				if (ipTd) {
-					dom.content(ipTd, renderIpCellContent(c, filter));
+					dom.content(ipTd, renderIpCellContent(c, ipFilter));
 				}
 			});
 		}
