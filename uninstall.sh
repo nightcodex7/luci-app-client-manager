@@ -22,10 +22,13 @@ if [ "$CURRENT_HOOK" = "/usr/libexec/clientmanager-dhcp-hook" ]; then
     uci commit dhcp
 fi
 
-echo "[3/3] Restarting services..."
-/etc/init.d/rpcd restart
-/etc/init.d/uhttpd restart
-/etc/init.d/dnsmasq restart
+echo "[3/3] Flushing LuCI cache and restarting services..."
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache* 2>/dev/null || true
+
+/etc/init.d/rpcd restart 2>/dev/null || true
+sleep 1
+/etc/init.d/uhttpd restart 2>/dev/null || true
+/etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart 2>/dev/null || true
 
 echo "=================================================="
 echo " Uninstallation complete!"

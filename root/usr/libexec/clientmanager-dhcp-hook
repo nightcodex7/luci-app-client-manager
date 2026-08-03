@@ -20,8 +20,10 @@ mkdir -p "$HISTORY_DIR"
 # Only log add and del events
 [ "$ACTION" = "old" ] && exit 0
 
+SAFE_HOST="$(echo "$HOSTNAME" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | tr '\n' ' ')"
+
 # Build new event JSON line
-EVENT="{\"action\":\"$ACTION\",\"mac\":\"$MAC\",\"ip\":\"$IP\",\"hostname\":\"$HOSTNAME\",\"timestamp\":$TIMESTAMP}"
+EVENT="{\"action\":\"$ACTION\",\"mac\":\"$MAC\",\"ip\":\"$IP\",\"hostname\":\"$SAFE_HOST\",\"timestamp\":$TIMESTAMP}"
 
 # Prepend event to log (newest first)
 if [ -f "$LOGFILE" ]; then

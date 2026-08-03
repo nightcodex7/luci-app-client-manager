@@ -282,8 +282,19 @@ if [ "$1" = "call" ]; then
 				done
 			fi
 
+			json_esc() {
+				printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | tr '\n' ' '
+			}
+
+			ESC_HOST=$(json_esc "$HOST")
+			ESC_NAME=$(json_esc "$CM_NAME")
+			ESC_OWNER=$(json_esc "$CM_OWNER")
+			ESC_NOTES=$(json_esc "$CM_NOTES")
+			ESC_ICON=$(json_esc "$CM_ICON")
+			ESC_IFACE=$(json_esc "$IFACE")
+
 			printf '{"client":{"mac":"%s","ip":"%s","hostname":"%s","name":"%s","owner":"%s","notes":"%s","icon":"%s","groups":%s,"expires":%s,"interface":"%s","wireless":%s,"signal":%s,"noise":%s}}\n' \
-				"$MAC" "$IP" "$HOST" "$CM_NAME" "$CM_OWNER" "$CM_NOTES" "$CM_ICON" "$CM_GROUPS" "$LEASE_EXP" "$IFACE" "$IS_WL" "$SIG" "$NOISE"
+				"$MAC" "$IP" "$ESC_HOST" "$ESC_NAME" "$ESC_OWNER" "$ESC_NOTES" "$ESC_ICON" "$CM_GROUPS" "$LEASE_EXP" "$ESC_IFACE" "$IS_WL" "$SIG" "$NOISE"
 			;;
 
 		setClientMeta)
@@ -314,10 +325,10 @@ if [ "$1" = "call" ]; then
 				uci set clientmanager.$SEC.mac="$MAC"
 			fi
 
-			[ -n "$NAME" ] && uci set clientmanager.$SEC.name="$NAME"
-			[ -n "$OWNER" ] && uci set clientmanager.$SEC.owner="$OWNER"
-			[ -n "$NOTES" ] && uci set clientmanager.$SEC.notes="$NOTES"
-			[ -n "$ICON" ] && uci set clientmanager.$SEC.icon="$ICON"
+			[ -n "$NAME" ] && uci set clientmanager.$SEC.name="$NAME" || uci -q del clientmanager.$SEC.name
+			[ -n "$OWNER" ] && uci set clientmanager.$SEC.owner="$OWNER" || uci -q del clientmanager.$SEC.owner
+			[ -n "$NOTES" ] && uci set clientmanager.$SEC.notes="$NOTES" || uci -q del clientmanager.$SEC.notes
+			[ -n "$ICON" ] && uci set clientmanager.$SEC.icon="$ICON" || uci -q del clientmanager.$SEC.icon
 
 			uci commit clientmanager
 			echo '{"success":true}'
@@ -563,6 +574,10 @@ if [ "$1" = "call" ]; then
 					if [ "$sgid" = "$GID" ]; then
 						uci delete clientmanager.$s 2>/dev/null || true
 					fi
+				done
+				# Clean up group assignments in client sections
+				for c in $(uci -q show clientmanager 2>/dev/null | grep "=client" | cut -d. -f2 | cut -d= -f1); do
+					uci del_list clientmanager.$c.groups="$GID" 2>/dev/null || true
 				done
 				uci commit clientmanager
 			fi
