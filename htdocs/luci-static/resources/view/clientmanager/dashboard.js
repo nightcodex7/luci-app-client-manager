@@ -358,11 +358,18 @@ return view.extend({
 		]);
 
 		var dropdownStyleElem = E('style', {},
+			'#cm-client-table thead tr.table-titles th {\n' +
+			'  vertical-align: middle !important;\n' +
+			'  line-height: 1.2;\n' +
+			'}\n' +
 			'select.cm-dropdown, select.cbi-input-select {\n' +
 			'  font-weight: bold;\n' +
 			'  padding: 4px 8px;\n' +
 			'  border-radius: 4px;\n' +
 			'  cursor: pointer;\n' +
+			'  vertical-align: middle !important;\n' +
+			'  margin: 0 !important;\n' +
+			'  box-sizing: border-box;\n' +
 			'  background-color: var(--background-color-medium, #2b2b2b) !important;\n' +
 			'  color: var(--text-color-high, #ffffff) !important;\n' +
 			'  border: 1px solid var(--border-color-medium, #555) !important;\n' +
