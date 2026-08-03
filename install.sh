@@ -21,14 +21,12 @@ else
     exit 1
 fi
 
-# Ensure Lua interpreter is installed (OpenWrt 25.12+ requires explicit lua package)
-if ! command -v lua >/dev/null 2>&1 && [ ! -x /usr/bin/lua ]; then
-    echo "[0/5] Lua interpreter not found. Installing lua package..."
-    if command -v opkg >/dev/null 2>&1; then
-        opkg update && opkg install lua || true
-    elif command -v apk >/dev/null 2>&1; then
-        apk --update-cache add lua || true
-    fi
+echo "[0/5] Verifying system dependencies..."
+if command -v opkg >/dev/null 2>&1; then
+    opkg update >/dev/null 2>&1 || true
+    opkg install lua libuci-lua luci-lib-jsonc conntrack >/dev/null 2>&1 || true
+elif command -v apk >/dev/null 2>&1; then
+    apk --update-cache add lua libuci-lua luci-lib-jsonc conntrack >/dev/null 2>&1 || true
 fi
 
 echo "[1/5] Preparing directory layout..."
@@ -82,11 +80,11 @@ if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
     NEED_DNSMASQ_RELOAD=1
 fi
 
-echo "[5/5] Flushing LuCI cache and restarting rpcd..."
-# Clear LuCI index and module caches to force interface refresh
-rm -f /tmp/luci-indexcache /tmp/luci-modulecache*
+echo "[5/5] Flushing LuCI cache and restarting RPC services..."
+# Clear LuCI index, module, and session ACL caches to force immediate privilege refresh
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache* /tmp/luci-sessions/* 2>/dev/null || true
 
-# Restart rpcd daemon so it registers /usr/libexec/rpcd/luci.clientmanager on ubus
+# Restart rpcd and uhttpd daemons so they re-scan /usr/libexec/rpcd/ and ACLs
 /etc/init.d/rpcd restart
 /etc/init.d/uhttpd restart
 
@@ -96,5 +94,6 @@ fi
 
 echo "=================================================="
 echo " Installation complete!"
+echo " Please log out and log back into LuCI in your browser."
 echo " Access Client Manager in LuCI: Clients"
 echo "=================================================="

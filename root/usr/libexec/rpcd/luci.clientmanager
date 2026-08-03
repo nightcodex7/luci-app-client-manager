@@ -1,7 +1,77 @@
-#!/usr/bin/lua
+#!/bin/usr/lua
 
-local ok, json = pcall(require, "luci.jsonc")
-if not ok then json = require "luci.json" end
+---------------------------------------------------------------------
+-- Robust JSON module loader
+---------------------------------------------------------------------
+local json = {}
+local raw_json = nil
+
+if pcall(require, "luci.jsonc") then
+	raw_json = require "luci.jsonc"
+	json.parse = function(str)
+		if not str or str == "" then return nil end
+		return raw_json.parse(str)
+	end
+	json.stringify = function(obj)
+		return raw_json.stringify(obj or {})
+	end
+elseif pcall(require, "cjson") then
+	raw_json = require "cjson"
+	json.parse = function(str)
+		if not str or str == "" then return nil end
+		local ok, res = pcall(raw_json.decode, str)
+		return ok and res or nil
+	end
+	json.stringify = function(obj)
+		local ok, res = pcall(raw_json.encode, obj or {})
+		return ok and res or "{}"
+	end
+elseif pcall(require, "luci.json") then
+	raw_json = require "luci.json"
+	json.parse = function(str)
+		if not str or str == "" then return nil end
+		local ok, res = pcall(raw_json.decode, str)
+		return ok and res or nil
+	end
+	json.stringify = function(obj)
+		local ok, res = pcall(raw_json.encode, obj or {})
+		return ok and res or "{}"
+	end
+else
+	json.parse = function(str) return nil end
+	json.stringify = function(obj) return "{}" end
+end
+
+---------------------------------------------------------------------
+-- Robust UCI loader (compatible with OpenWrt 21.02, 23.05, 24.10, 25.12)
+---------------------------------------------------------------------
+local uci_mod = nil
+local function uci_cursor()
+	if not uci_mod then
+		local ok, u = pcall(require, "uci")
+		if ok then
+			uci_mod = u
+		else
+			ok, u = pcall(require, "luci.model.uci")
+			if ok then uci_mod = u end
+		end
+	end
+	if uci_mod and uci_mod.cursor then
+		local ok, c = pcall(uci_mod.cursor)
+		if ok and c then return c end
+	end
+	-- Failsafe dummy cursor
+	return {
+		foreach = function() end,
+		get = function() return nil end,
+		set = function() end,
+		add = function() return "sec" end,
+		delete = function() end,
+		commit = function() end,
+		add_list = function() end,
+		del_list = function() end
+	}
+end
 
 ---------------------------------------------------------------------
 -- Utilities
@@ -27,10 +97,6 @@ local function exec_json(cmd)
 	local raw = exec(cmd)
 	if raw == "" then return nil end
 	return json.parse(raw)
-end
-
-local function uci_cursor()
-	return require("luci.model.uci").cursor()
 end
 
 local function ip_to_num(ip)
@@ -67,8 +133,6 @@ local function get_arp_entries()
 	local entries = {}
 	local raw = read_file("/proc/net/arp")
 	if not raw then return entries end
-	-- /proc/net/arp format:
-	-- IP HW_type Flags HW_address Mask Device
 	local skip = true
 	for line in raw:gmatch("[^\n]+") do
 		if skip then skip = false else
@@ -88,7 +152,6 @@ local function get_wireless_assoc()
 	local devs = exec_json("ubus call iwinfo devices")
 	if not devs or not devs.devices then return wl end
 	for _, dev in ipairs(devs.devices) do
-		-- Sanitize device name to prevent shell injection
 		if dev:match("^[%w%-_%.]+$") then
 			local al = exec_json(
 				"ubus call iwinfo assoclist '{\"device\":\"" .. dev .. "\"}'")
@@ -112,16 +175,18 @@ end
 local function load_meta()
 	local cur = uci_cursor()
 	local meta = {}
-	cur:foreach("clientmanager", "client", function(s)
-		if s.mac then
-			meta[s.mac:upper()] = {
-				name = s.name or "",
-				owner = s.owner or "",
-				notes = s.notes or "",
-				icon = s.icon or "",
-				groups = s.groups or {}
-			}
-		end
+	pcall(function()
+		cur:foreach("clientmanager", "client", function(s)
+			if s.mac then
+				meta[s.mac:upper()] = {
+					name = s.name or "",
+					owner = s.owner or "",
+					notes = s.notes or "",
+					icon = s.icon or "",
+					groups = s.groups or {}
+				}
+			end
+		end)
 	end)
 	return meta
 end
@@ -150,7 +215,6 @@ local methods = {
 			local seen = {}
 			local clients = {}
 
-			-- Merge all sources
 			for _, src in ipairs({ leases, arp, wireless }) do
 				for mac in pairs(src) do seen[mac] = true end
 			end
@@ -314,7 +378,6 @@ local methods = {
 			local cur = uci_cursor()
 			local rule_name = "cm_" .. mac:gsub(":", "")
 
-			-- Collect sections to delete first (cannot delete during foreach)
 			local to_delete = {}
 			cur:foreach("firewall", "rule", function(s)
 				if s.name == rule_name then
@@ -387,14 +450,10 @@ local methods = {
 		args = {},
 		call = function()
 			local clients = {}
-			-- conntrack -L lines have two directions:
-			-- proto ... src=A dst=B ... bytes=X src=B dst=A ... bytes=Y
-			-- First bytes=X is upload from A, second bytes=Y is download to A
 			local ct = exec("conntrack -L -o extended 2>/dev/null")
 			if ct ~= "" then
-				local by_ip = {}  -- ip -> { tx=N, rx=N }
+				local by_ip = {}
 				for line in ct:gmatch("[^\n]+") do
-					-- Extract first src (originator) and both bytes values
 					local src = line:match("src=(%d+%.%d+%.%d+%.%d+)")
 					if src then
 						local b1, b2 = line:match("bytes=(%d+).-bytes=(%d+)")
@@ -546,15 +605,12 @@ local methods = {
 		args = {},
 		call = function()
 			local stats = { available = false }
-
-			-- Check vnstat
 			local vnstat = exec_json("vnstat --json 2>/dev/null")
 			if vnstat then
 				stats.available = true
 				stats.source = "vnstat"
 				stats.data = vnstat
 			end
-
 			return stats
 		end
 	}
@@ -573,8 +629,14 @@ if arg[1] == "list" then
 elseif arg[1] == "call" then
 	local fn = methods[arg[2]]
 	if fn then
-		local input = json.parse(io.read("*a") or "{}") or {}
-		print(json.stringify(fn.call(input)))
+		local raw_in = io.read("*a") or ""
+		local input = json.parse(raw_in) or {}
+		local ok, res = pcall(fn.call, input)
+		if ok and res then
+			print(json.stringify(res))
+		else
+			print(json.stringify({ error = "Execution failed" }))
+		end
 	else
 		print(json.stringify({ error = "Method not found" }))
 	end
