@@ -588,6 +588,9 @@ if [ "$1" = "call" ]; then
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				SEC_NAME="lim_${CLEAN_MAC}"
 
+				[ -z "$IP" ] && [ -f /tmp/dhcp.leases ] && IP=$(grep -i "$MAC" /tmp/dhcp.leases | awk '{print $3}' | head -n 1 || true)
+				[ -z "$IP" ] && [ -f /proc/net/arp ] && IP=$(grep -i "$MAC" /proc/net/arp | awk '{print $1}' | head -n 1 || true)
+
 				uci delete clientmanager.$SEC_NAME 2>/dev/null || true
 
 				HAS_DL=$(awk -v v="$DL_VAL" 'BEGIN { print (v+0 > 0) ? 1 : 0 }')
@@ -596,7 +599,7 @@ if [ "$1" = "call" ]; then
 				if [ "$HAS_DL" -eq 1 ] || [ "$HAS_UL" -eq 1 ]; then
 					uci set clientmanager.$SEC_NAME=limit
 					uci set clientmanager.$SEC_NAME.mac="$MAC"
-					uci set clientmanager.$SEC_NAME.ip="$IP"
+					[ -n "$IP" ] && uci set clientmanager.$SEC_NAME.ip="$IP"
 					uci set clientmanager.$SEC_NAME.download_val="$DL_VAL"
 					uci set clientmanager.$SEC_NAME.download_unit="$DL_UNIT"
 					uci set clientmanager.$SEC_NAME.upload_val="$UL_VAL"
@@ -604,33 +607,37 @@ if [ "$1" = "call" ]; then
 				fi
 				uci commit clientmanager
 
-				# Apply dynamic nftables / iptables rules if IP is present
-				if [ -n "$IP" ] && command -v nft >/dev/null 2>&1; then
-					nft delete rule inet fw4 forward ip daddr "$IP" 2>/dev/null || true
-					nft delete rule inet fw4 forward ip saddr "$IP" 2>/dev/null || true
+				# Apply dynamic nftables rules
+				if command -v nft >/dev/null 2>&1; then
+					HANDLES=$(nft -a list chain inet fw4 forward 2>/dev/null | grep -E "cm_lim_${CLEAN_MAC}" | awk '{print $NF}')
+					for h in $HANDLES; do
+						nft delete rule inet fw4 forward handle "$h" 2>/dev/null || true
+					done
 
-					if [ "$HAS_DL" -eq 1 ]; then
-						DL_BYTES=$(awk -v val="$DL_VAL" -v unit="$DL_UNIT" 'BEGIN {
-							v = val + 0
-							if (unit == "MBps") bytes = v * 1000000
-							else if (unit == "Kbps") bytes = v * 1000 / 8
-							else if (unit == "KBps") bytes = v * 1000
-							else bytes = v * 1000000 / 8
-							print int(bytes)
-						}')
-						nft add rule inet fw4 forward ip daddr "$IP" limit rate over "${DL_BYTES} bytes/second" drop 2>/dev/null || true
-					fi
+					if [ -n "$IP" ]; then
+						if [ "$HAS_DL" -eq 1 ]; then
+							DL_BYTES=$(awk -v val="$DL_VAL" -v unit="$DL_UNIT" 'BEGIN {
+								v = val + 0
+								if (unit == "MBps") bytes = v * 1000000
+								else if (unit == "Kbps") bytes = v * 125
+								else if (unit == "KBps") bytes = v * 1000
+								else bytes = v * 125000
+								print int(bytes)
+							}')
+							nft insert rule inet fw4 forward ip daddr "$IP" limit rate over "${DL_BYTES} bytes/second" drop comment "cm_lim_${CLEAN_MAC}" 2>/dev/null || true
+						fi
 
-					if [ "$HAS_UL" -eq 1 ]; then
-						UL_BYTES=$(awk -v val="$UL_VAL" -v unit="$UL_UNIT" 'BEGIN {
-							v = val + 0
-							if (unit == "MBps") bytes = v * 1000000
-							else if (unit == "Kbps") bytes = v * 1000 / 8
-							else if (unit == "KBps") bytes = v * 1000
-							else bytes = v * 1000000 / 8
-							print int(bytes)
-						}')
-						nft add rule inet fw4 forward ip saddr "$IP" limit rate over "${UL_BYTES} bytes/second" drop 2>/dev/null || true
+						if [ "$HAS_UL" -eq 1 ]; then
+							UL_BYTES=$(awk -v val="$UL_VAL" -v unit="$UL_UNIT" 'BEGIN {
+								v = val + 0
+								if (unit == "MBps") bytes = v * 1000000
+								else if (unit == "Kbps") bytes = v * 125
+								else if (unit == "KBps") bytes = v * 1000
+								else bytes = v * 125000
+								print int(bytes)
+							}')
+							nft insert rule inet fw4 forward ip saddr "$IP" limit rate over "${UL_BYTES} bytes/second" drop comment "cm_lim_${CLEAN_MAC}" 2>/dev/null || true
+						fi
 					fi
 				fi
 			fi
@@ -644,10 +651,11 @@ if [ "$1" = "call" ]; then
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				SEC_NAME="lim_${CLEAN_MAC}"
 
-				IP=$(uci -q get clientmanager.$SEC_NAME.ip 2>/dev/null || true)
-				if [ -n "$IP" ] && command -v nft >/dev/null 2>&1; then
-					nft delete rule inet fw4 forward ip daddr "$IP" 2>/dev/null || true
-					nft delete rule inet fw4 forward ip saddr "$IP" 2>/dev/null || true
+				if command -v nft >/dev/null 2>&1; then
+					HANDLES=$(nft -a list chain inet fw4 forward 2>/dev/null | grep -E "cm_lim_${CLEAN_MAC}" | awk '{print $NF}')
+					for h in $HANDLES; do
+						nft delete rule inet fw4 forward handle "$h" 2>/dev/null || true
+					done
 				fi
 
 				uci delete clientmanager.$SEC_NAME 2>/dev/null || true

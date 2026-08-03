@@ -49,7 +49,7 @@ function buildBandwidthEntries(bandwidth, clients, speedLimits) {
 
 	var limitMap = {};
 	(speedLimits || []).forEach(function(l) {
-		if (l.mac) limitMap[l.mac.toUpperCase()] = l;
+		if (l.mac) limitMap[l.mac.replace(/:/g, '').toUpperCase()] = l;
 	});
 
 	var entries = [];
@@ -57,7 +57,8 @@ function buildBandwidthEntries(bandwidth, clients, speedLimits) {
 		if (!c.ip || c.ip === '127.0.0.1' || c.connected === false) return;
 
 		var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
-		var lim = limitMap[(c.mac || '').toUpperCase()] || { download_val: '0', download_unit: 'Mbps', upload_val: '0', upload_unit: 'Mbps' };
+		var macClean = (c.mac || '').replace(/:/g, '').toUpperCase();
+		var lim = limitMap[macClean] || { download_val: '0', download_unit: 'Mbps', upload_val: '0', upload_unit: 'Mbps' };
 
 		entries.push({
 			displayName: c.hostname || c.ip,

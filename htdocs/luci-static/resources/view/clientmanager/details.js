@@ -155,12 +155,14 @@ return view.extend({
 		var sysStatus = data[2] || {};
 		var speedLimits = (data[3] && data[3].limits) ? data[3].limits : [];
 
+		var cleanMac = mac.replace(/:/g, '').toUpperCase();
+
 		var currentLimit = speedLimits.find(function(l) {
-			return l.mac && l.mac.toUpperCase() === mac.toUpperCase();
+			return l.mac && l.mac.replace(/:/g, '').toUpperCase() === cleanMac;
 		}) || { download_val: '0', download_unit: 'Mbps', upload_val: '0', upload_unit: 'Mbps' };
 
 		var isBlocked = fwRules.some(function(r) {
-			return r.src_mac && r.src_mac.toUpperCase() === mac.toUpperCase() &&
+			return r.src_mac && r.src_mac.replace(/:/g, '').toUpperCase() === cleanMac &&
 				r.target === 'REJECT';
 		});
 
