@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Tuhin Garai <tuhin@nightcode.org>
 
 echo "=================================================="
 echo " Uninstalling luci-app-client-manager"
@@ -18,8 +20,8 @@ rm -rf /tmp/clientmanager
 echo "[2/3] Cleaning dnsmasq configuration..."
 CURRENT_HOOK=$(uci -q get dhcp.@dnsmasq[0].dhcpscript || true)
 if [ "$CURRENT_HOOK" = "/usr/libexec/clientmanager-dhcp-hook" ]; then
-    uci delete dhcp.@dnsmasq[0].dhcpscript
-    uci commit dhcp
+	uci delete dhcp.@dnsmasq[0].dhcpscript
+	uci commit dhcp
 fi
 
 echo "[3/3] Flushing LuCI cache and restarting services..."

@@ -1,5 +1,6 @@
 #!/bin/sh
-# luci-app-client-manager: first-install defaults
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Tuhin Garai <tuhin@nightcode.org>
 
 [ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
 mkdir -p /tmp/clientmanager

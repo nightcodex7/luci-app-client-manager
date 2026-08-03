@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (C) 2026 Tuhin Garai <tuhin@nightcode.org> */
+
 'use strict';
 'require view';
 'require rpc';

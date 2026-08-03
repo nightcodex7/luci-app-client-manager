@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Tuhin Garai <tuhin@nightcode.org>
 
 # Handle rpcd "list" call
 if [ "$1" = "list" ]; then
@@ -561,7 +563,7 @@ if [ "$1" = "call" ]; then
 
 				uci delete clientmanager.$SEC_NAME 2>/dev/null || true
 
-				if [ -n "$DL_VAL" ] && [ "$DL_VAL" != "0" ] || [ -n "$UL_VAL" ] && [ "$UL_VAL" != "0" ]; then
+				if { [ -n "$DL_VAL" ] && [ "$DL_VAL" != "0" ]; } || { [ -n "$UL_VAL" ] && [ "$UL_VAL" != "0" ]; }; then
 					uci set clientmanager.$SEC_NAME=limit
 					uci set clientmanager.$SEC_NAME.mac="$MAC"
 					uci set clientmanager.$SEC_NAME.ip="$IP"
@@ -611,7 +613,7 @@ if [ "$1" = "call" ]; then
 				[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				SEC_NAME="lim_${CLEAN_MAC}"
-				
+
 				IP=$(uci -q get clientmanager.$SEC_NAME.ip 2>/dev/null || true)
 				if [ -n "$IP" ] && command -v nft >/dev/null 2>&1; then
 					nft delete rule inet fw4 forward ip daddr "$IP" 2>/dev/null || true

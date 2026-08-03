@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (C) 2026 Tuhin Garai <tuhin@nightcode.org> */
+
 'use strict';
 'require view';
 'require rpc';
@@ -87,7 +90,7 @@ return view.extend({
 						E('span', { 'style': 'opacity:0.6;font-size:0.85em' },
 							_('Filter mode: ') + (iface.macfilter || 'disable')),
 						maclistStr
-							? E('div', { 'style': 'font-size:0.8em;opacity:0.5;margin-top:2px' },
+							? E('div', { 'style': 'font-size:0.8e;opacity:0.5;margin-top:2px' },
 								_('Current list: ') + maclistStr)
 							: ''
 					])
