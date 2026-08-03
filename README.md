@@ -11,21 +11,25 @@
 ## Screenshots
 
 ### 📊 Client Dashboard
+
 ![Client Dashboard](assets/dashboard.png)
 
 ---
 
 ### ⚡ Bandwidth Monitor & Speed Limiter
+
 ![Bandwidth Monitor](assets/bandwidth.png)
 
 ---
 
 ### 🛡️ Firewall Internet Access Control
+
 ![Firewall Control](assets/firewall.png)
 
 ---
 
 ### 📶 WiFi Access Control
+
 ![WiFi Access Control](assets/wifiaccess.png)
 
 ---
@@ -45,7 +49,6 @@
 - **WiFi Access Control**: Manage per-SSID MAC filtering (`macfilter`) for connected clients or by entering any **Custom MAC Address**.
 - **Firewall Internet Control**: Easily block or unblock internet access per device using OpenWrt `fw4` firewall rule injection.
 - **Real-Time Bandwidth Monitoring**: Track active upload and download byte counters per device using `conntrack` with customizable refresh intervals (1s, 5s, 10s).
-- **Native LuCI Theme Integration**: Clean, auto-adapting CSS dropdowns matching all standard LuCI light and dark themes (Argon, Bootstrap, Material, Design).
 
 ---
 
