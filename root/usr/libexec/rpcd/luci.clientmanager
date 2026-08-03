@@ -94,7 +94,7 @@ if [ "$1" = "call" ]; then
 
 			# Method 3: uci wireless SSID mapping
 			if command -v uci >/dev/null 2>&1; then
-				for s in $(uci -q show wireless 2>/dev/null | grep "=wifi-iface" | cut -d. -f2 | cut -d= -f1); do
+				for s in $(uci -q show wireless 2>/dev/null | grep -E "=['\"]?wifi-iface['\"]?" | cut -d. -f2 | cut -d= -f1 | tr -d "'\""); do
 					wiface=$(uci -q get wireless.$s.ifname 2>/dev/null || uci -q get wireless.$s.device 2>/dev/null || true)
 					wssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
 					if [ -n "$wssid" ]; then
@@ -152,7 +152,7 @@ if [ "$1" = "call" ]; then
 			TMP_UCI="/tmp/cm_uci_$$.txt"
 			rm -f "$TMP_UCI"
 			if command -v uci >/dev/null 2>&1; then
-				for s in $(uci -q show dhcp 2>/dev/null | grep "=host" | cut -d. -f2 | cut -d= -f1); do
+				for s in $(uci -q show dhcp 2>/dev/null | grep -E "=['\"]?host['\"]?" | cut -d. -f2 | cut -d= -f1 | tr -d "'\""); do
 					dmac=$(uci -q get dhcp.$s.mac 2>/dev/null | tr 'a-z' 'A-Z')
 					dip=$(uci -q get dhcp.$s.ip 2>/dev/null || true)
 					dname=$(uci -q get dhcp.$s.name 2>/dev/null || true)
@@ -367,7 +367,8 @@ if [ "$1" = "call" ]; then
 			IFACES="["
 			FIRST=1
 			if command -v uci >/dev/null 2>&1; then
-				for s in $(uci -q show wireless 2>/dev/null | grep "=wifi-iface" | cut -d. -f2 | cut -d= -f1); do
+				for s in $(uci -q show wireless 2>/dev/null | grep -E "=['\"]?wifi-iface['\"]?" | cut -d. -f2 | cut -d= -f1 | tr -d "'\""); do
+					[ -z "$s" ] && continue
 					d=$(uci -q get wireless.$s.device 2>/dev/null || true)
 					m=$(uci -q get wireless.$s.mode 2>/dev/null || echo "ap")
 					ssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
@@ -423,8 +424,8 @@ if [ "$1" = "call" ]; then
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				RULE_NAME="cm_${CLEAN_MAC}"
 
-				for s in $(uci -q show firewall | grep "\.name='${RULE_NAME}'" | cut -d. -f2); do
-					uci delete firewall.$s 2>/dev/null || true
+				for s in $(uci -q show firewall 2>/dev/null | grep -E "\.name=['\"]?${RULE_NAME}['\"]?" | cut -d. -f2 | cut -d= -f1 | tr -d "'\""); do
+					[ -n "$s" ] && uci delete firewall.$s 2>/dev/null || true
 				done
 
 				if [ "$ACT" = "block" ]; then
@@ -446,7 +447,8 @@ if [ "$1" = "call" ]; then
 			RULES="["
 			FIRST=1
 			if command -v uci >/dev/null 2>&1; then
-				for s in $(uci -q show firewall 2>/dev/null | grep "=rule" | cut -d. -f2 | cut -d= -f1); do
+				for s in $(uci -q show firewall 2>/dev/null | grep -E "=['\"]?rule['\"]?" | cut -d. -f2 | cut -d= -f1 | tr -d "'\""); do
+					[ -z "$s" ] && continue
 					rname=$(uci -q get firewall.$s.name 2>/dev/null || true)
 					case "$rname" in
 						cm_*)
@@ -469,8 +471,8 @@ if [ "$1" = "call" ]; then
 			if [ -n "$MAC" ]; then
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				RULE_NAME="cm_${CLEAN_MAC}"
-				for s in $(uci -q show firewall | grep "\.name='${RULE_NAME}'" | cut -d. -f2); do
-					uci delete firewall.$s 2>/dev/null || true
+				for s in $(uci -q show firewall 2>/dev/null | grep -E "\.name=['\"]?${RULE_NAME}['\"]?" | cut -d. -f2 | cut -d= -f1 | tr -d "'\""); do
+					[ -n "$s" ] && uci delete firewall.$s 2>/dev/null || true
 				done
 				uci commit firewall
 				/etc/init.d/firewall reload >/dev/null 2>&1 &
@@ -545,7 +547,12 @@ if [ "$1" = "call" ]; then
 			LIMITS="["
 			FIRST=1
 			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
-				for s in $(uci -q show clientmanager 2>/dev/null | grep "=limit" | cut -d. -f2 | cut -d= -f1); do
+				SECS=$(uci -q show clientmanager 2>/dev/null | grep -E "\.mac=" | cut -d. -f2 | cut -d= -f1 | sort -u || true)
+				if [ -z "$SECS" ]; then
+					SECS=$(uci -q show clientmanager 2>/dev/null | grep -E "=['\"]?limit['\"]?" | cut -d. -f2 | cut -d= -f1 | sort -u || true)
+				fi
+				for s in $SECS; do
+					[ -z "$s" ] && continue
 					lmac=$(uci -q get clientmanager.$s.mac 2>/dev/null || true)
 					lip=$(uci -q get clientmanager.$s.ip 2>/dev/null || true)
 					ldl_val=$(uci -q get clientmanager.$s.download_val 2>/dev/null || uci -q get clientmanager.$s.download_mbps 2>/dev/null || echo "0")
@@ -566,19 +573,27 @@ if [ "$1" = "call" ]; then
 		setSpeedLimit)
 			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
 			IP=$(echo "$INPUT" | jsonfilter -e '@.ip' 2>/dev/null)
-			DL_VAL=$(echo "$INPUT" | jsonfilter -e '@.download_val' 2>/dev/null || echo "0")
+			DL_VAL=$(echo "$INPUT" | jsonfilter -e '@.download_val' 2>/dev/null || echo "")
 			DL_UNIT=$(echo "$INPUT" | jsonfilter -e '@.download_unit' 2>/dev/null || echo "Mbps")
-			UL_VAL=$(echo "$INPUT" | jsonfilter -e '@.upload_val' 2>/dev/null || echo "0")
+			UL_VAL=$(echo "$INPUT" | jsonfilter -e '@.upload_val' 2>/dev/null || echo "")
 			UL_UNIT=$(echo "$INPUT" | jsonfilter -e '@.upload_unit' 2>/dev/null || echo "Mbps")
 
+			[ -z "$DL_VAL" ] && DL_VAL="0"
+			[ -z "$DL_UNIT" ] && DL_UNIT="Mbps"
+			[ -z "$UL_VAL" ] && UL_VAL="0"
+			[ -z "$UL_UNIT" ] && UL_UNIT="Mbps"
+
 			if [ -n "$MAC" ]; then
-				[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
+				[ -f /etc/config/clientmanager ] || echo "# Client Manager Config" > /etc/config/clientmanager
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				SEC_NAME="lim_${CLEAN_MAC}"
 
 				uci delete clientmanager.$SEC_NAME 2>/dev/null || true
 
-				if { [ -n "$DL_VAL" ] && [ "$DL_VAL" != "0" ]; } || { [ -n "$UL_VAL" ] && [ "$UL_VAL" != "0" ]; }; then
+				HAS_DL=$(awk -v v="$DL_VAL" 'BEGIN { print (v+0 > 0) ? 1 : 0 }')
+				HAS_UL=$(awk -v v="$UL_VAL" 'BEGIN { print (v+0 > 0) ? 1 : 0 }')
+
+				if [ "$HAS_DL" -eq 1 ] || [ "$HAS_UL" -eq 1 ]; then
 					uci set clientmanager.$SEC_NAME=limit
 					uci set clientmanager.$SEC_NAME.mac="$MAC"
 					uci set clientmanager.$SEC_NAME.ip="$IP"
@@ -594,7 +609,7 @@ if [ "$1" = "call" ]; then
 					nft delete rule inet fw4 forward ip daddr "$IP" 2>/dev/null || true
 					nft delete rule inet fw4 forward ip saddr "$IP" 2>/dev/null || true
 
-					if [ -n "$DL_VAL" ] && [ "$DL_VAL" != "0" ]; then
+					if [ "$HAS_DL" -eq 1 ]; then
 						DL_BYTES=$(awk -v val="$DL_VAL" -v unit="$DL_UNIT" 'BEGIN {
 							v = val + 0
 							if (unit == "MBps") bytes = v * 1000000
@@ -606,7 +621,7 @@ if [ "$1" = "call" ]; then
 						nft add rule inet fw4 forward ip daddr "$IP" limit rate over "${DL_BYTES} bytes/second" drop 2>/dev/null || true
 					fi
 
-					if [ -n "$UL_VAL" ] && [ "$UL_VAL" != "0" ]; then
+					if [ "$HAS_UL" -eq 1 ]; then
 						UL_BYTES=$(awk -v val="$UL_VAL" -v unit="$UL_UNIT" 'BEGIN {
 							v = val + 0
 							if (unit == "MBps") bytes = v * 1000000
@@ -625,7 +640,7 @@ if [ "$1" = "call" ]; then
 		deleteSpeedLimit)
 			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
 			if [ -n "$MAC" ]; then
-				[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
+				[ -f /etc/config/clientmanager ] || echo "# Client Manager Config" > /etc/config/clientmanager
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				SEC_NAME="lim_${CLEAN_MAC}"
 

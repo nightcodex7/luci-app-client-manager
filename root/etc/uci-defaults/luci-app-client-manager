@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Tuhin Garai <tuhin@nightcode.org>
 
-[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
+[ -f /etc/config/clientmanager ] || echo "# Client Manager Config" > /etc/config/clientmanager
 mkdir -p /tmp/clientmanager
 chmod +x /usr/libexec/rpcd/luci.clientmanager
 
