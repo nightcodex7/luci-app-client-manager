@@ -38,39 +38,70 @@ return view.extend({
 		var bandwidth = data[0] || [];
 		var clients = data[1] || [];
 
-		// Map IPs to client info
-		var ipMap = {};
-		clients.forEach(function(c) {
-			if (c.ip) ipMap[c.ip] = c;
+		// Map bandwidth by IP
+		var bwMap = {};
+		bandwidth.forEach(function(b) {
+			if (b.ip) bwMap[b.ip] = b;
 		});
+
+		// Build merged entries list of all connected clients
+		var entries = [];
+		var seenIps = {};
+
+		clients.forEach(function(c) {
+			if (!c.ip) return;
+			seenIps[c.ip] = true;
+			var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
+			entries.push({
+				displayName: c.name || c.hostname || c.ip,
+				ip: c.ip,
+				mac: c.mac || '—',
+				tx: bw.tx || 0,
+				rx: bw.rx || 0,
+				bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0))
+			});
+		});
+
+		// Add any conntrack IPs not present in active clients list
+		bandwidth.forEach(function(b) {
+			if (b.ip && !seenIps[b.ip]) {
+				entries.push({
+					displayName: b.ip,
+					ip: b.ip,
+					mac: '—',
+					tx: b.tx || 0,
+					rx: b.rx || 0,
+					bytes: b.bytes || ((b.tx || 0) + (b.rx || 0))
+				});
+			}
+		});
+
+		// Sort by total bytes descending
+		entries.sort(function(a, b) { return b.bytes - a.bytes; });
 
 		var tableBody = E('tbody', { 'id': 'cm-bw-tbody' });
 
-		if (bandwidth.length === 0) {
+		if (entries.length === 0) {
 			tableBody.appendChild(
 				E('tr', { 'class': 'tr placeholder' },
 					E('td', { 'class': 'td', 'colspan': '6',
 						'style': 'text-align:center;padding:24px;' },
-						_('No bandwidth data available. Ensure conntrack is installed.')))
+						_('No active network clients or bandwidth data available.')))
 			);
+		} else {
+			entries.forEach(function(e) {
+				tableBody.appendChild(E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td' }, e.displayName),
+					E('td', { 'class': 'td' }, e.ip),
+					E('td', { 'class': 'td' },
+						E('code', { 'style': 'font-size:0.85em' }, e.mac)),
+					E('td', { 'class': 'td' }, formatBytes(e.tx)),
+					E('td', { 'class': 'td' }, formatBytes(e.rx)),
+					E('td', { 'class': 'td', 'style': 'font-weight:bold' },
+						formatBytes(e.bytes))
+				]));
+			});
 		}
-
-		bandwidth.forEach(function(b) {
-			var c = ipMap[b.ip] || {};
-			var displayName = c.name || c.hostname || b.ip;
-
-			tableBody.appendChild(E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, displayName),
-				E('td', { 'class': 'td' }, b.ip),
-				E('td', { 'class': 'td' },
-					E('code', { 'style': 'font-size:0.85em' },
-						c.mac || '—')),
-				E('td', { 'class': 'td' }, formatBytes(b.tx || 0)),
-				E('td', { 'class': 'td' }, formatBytes(b.rx || 0)),
-				E('td', { 'class': 'td', 'style': 'font-weight:bold' },
-					formatBytes(b.bytes || 0))
-			]));
-		});
 
 		var refreshBtn = E('button', {
 			'class': 'cbi-button cbi-button-action',

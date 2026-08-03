@@ -56,12 +56,40 @@ var ICON_OPTIONS = [
 ];
 
 function getMac() {
-	// LuCI passes extra path segments via L.env.requestpath
-	// URL: .../admin/clientmanager/details/AA:BB:CC:DD:EE:FF
+	var macPattern = /([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})/;
+
+	// 1. Check L.env.requestpath
 	var path = L.env.requestpath || [];
-	// requestpath = ['admin', 'clientmanager', 'details', 'AA:BB:CC:DD:EE:FF']
-	if (path.length > 3)
-		return decodeURIComponent(path.slice(3).join('/'));
+	var idx = path.indexOf('details');
+	if (idx > -1 && path.length > idx + 1) {
+		var pMac = decodeURIComponent(path.slice(idx + 1).join(':'));
+		var m1 = pMac.match(macPattern);
+		if (m1) return m1[0].toUpperCase();
+	}
+
+	// 2. Check query parameters (?mac=AA:BB:CC:DD:EE:FF)
+	if (window.location.search) {
+		var params = new URLSearchParams(window.location.search);
+		var qMac = params.get('mac');
+		if (qMac) {
+			var m2 = decodeURIComponent(qMac).match(macPattern);
+			if (m2) return m2[0].toUpperCase();
+		}
+	}
+
+	// 3. Check window.location.hash
+	if (window.location.hash) {
+		var hash = decodeURIComponent(window.location.hash).replace(/^#/, '');
+		var m3 = hash.match(macPattern);
+		if (m3) return m3[0].toUpperCase();
+	}
+
+	// 4. Check window.location.pathname
+	if (window.location.pathname) {
+		var m4 = decodeURIComponent(window.location.pathname).match(macPattern);
+		if (m4) return m4[0].toUpperCase();
+	}
+
 	return '';
 }
 

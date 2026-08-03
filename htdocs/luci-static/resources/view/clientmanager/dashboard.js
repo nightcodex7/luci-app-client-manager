@@ -120,8 +120,7 @@ return view.extend({
 					displayName, c.hostname, c.ip, c.mac, c.owner
 				].join(' ').toLowerCase(),
 				'click': function() {
-					window.location.href = L.url(
-						'admin/clientmanager/details', c.mac);
+					window.location.href = L.url('admin/clientmanager/details') + '?mac=' + encodeURIComponent(c.mac);
 				}
 			}, [
 				E('td', { 'class': 'td', 'style': 'font-size:1.3em;text-align:center;width:40px;' },

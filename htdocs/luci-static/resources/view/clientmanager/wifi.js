@@ -81,7 +81,8 @@ return view.extend({
 							'type': 'checkbox',
 							'class': 'cm-wifi-cb',
 							'data-section': iface.section,
-							'style': 'margin-right:8px;'
+							'disabled': 'disabled',
+							'style': 'margin-right:8px;cursor:pointer;'
 						}),
 						E('span', { 'style': 'opacity:0.6;font-size:0.85em' },
 							_('Filter mode: ') + (iface.macfilter || 'disable')),
@@ -99,16 +100,22 @@ return view.extend({
 
 		// Update checkboxes when device selection changes
 		macSelect.addEventListener('change', function() {
-			var mac = this.value.toUpperCase();
+			var mac = (this.value || '').toUpperCase();
 			var cbs = ifaceContainer.querySelectorAll('.cm-wifi-cb');
 			cbs.forEach(function(cb) {
+				if (!mac) {
+					cb.disabled = true;
+					cb.checked = false;
+					return;
+				}
+				cb.disabled = false;
 				var row = cb.closest('[data-maclist]');
 				var maclist = [];
 				try {
-					maclist = JSON.parse(row.getAttribute('data-maclist'))
-						.map(function(m) { return m.toUpperCase(); });
+					maclist = JSON.parse(row.getAttribute('data-maclist') || '[]')
+						.map(function(m) { return (m || '').toUpperCase(); });
 				} catch(e) {}
-				cb.checked = mac && maclist.indexOf(mac) > -1;
+				cb.checked = maclist.indexOf(mac) > -1;
 			});
 		});
 
