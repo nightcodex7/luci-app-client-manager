@@ -4,7 +4,11 @@ set -e
 REPO_URL="https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main"
 
 echo "=================================================="
-echo " Installing luci-app-client-manager"
+if [ -f /usr/libexec/rpcd/luci.clientmanager ]; then
+    echo " Updating luci-app-client-manager"
+else
+    echo " Installing luci-app-client-manager"
+fi
 echo "=================================================="
 
 # Check for download tool
@@ -17,7 +21,7 @@ else
     exit 1
 fi
 
-echo "[1/5] Creating directory layout..."
+echo "[1/5] Preparing directory layout..."
 mkdir -p /etc/config
 mkdir -p /etc/uci-defaults
 mkdir -p /usr/libexec/rpcd
@@ -25,36 +29,57 @@ mkdir -p /usr/share/luci/menu.d
 mkdir -p /usr/share/rpcd/acl.d
 mkdir -p /www/luci-static/resources/view/clientmanager
 
-echo "[2/5] Downloading backend and configuration files..."
-$FETCH /etc/config/clientmanager "$REPO_URL/root/etc/config/clientmanager"
+# Clean up legacy backend script if upgrading from older version
+rm -f /usr/libexec/rpcd/clientmanager
+
+echo "[2/5] Updating backend and configuration files..."
+# Preserve existing user configuration (/etc/config/clientmanager) if present
+if [ ! -f /etc/config/clientmanager ]; then
+    $FETCH /etc/config/clientmanager "$REPO_URL/root/etc/config/clientmanager"
+fi
+
 $FETCH /etc/uci-defaults/luci-app-client-manager "$REPO_URL/root/etc/uci-defaults/luci-app-client-manager"
 $FETCH /usr/libexec/clientmanager-dhcp-hook "$REPO_URL/root/usr/libexec/clientmanager-dhcp-hook"
-$FETCH /usr/libexec/rpcd/clientmanager "$REPO_URL/root/usr/libexec/rpcd/clientmanager"
+$FETCH /usr/libexec/rpcd/luci.clientmanager "$REPO_URL/root/usr/libexec/rpcd/luci.clientmanager"
 $FETCH /usr/share/luci/menu.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/luci/menu.d/luci-app-client-manager.json"
 $FETCH /usr/share/rpcd/acl.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/rpcd/acl.d/luci-app-client-manager.json"
 
-echo "[3/5] Downloading frontend views..."
+echo "[3/5] Updating frontend views..."
 for view in bandwidth dashboard details firewall groups history statistics wifi; do
     $FETCH "/www/luci-static/resources/view/clientmanager/${view}.js" \
         "$REPO_URL/htdocs/luci-static/resources/view/clientmanager/${view}.js"
 done
 
-echo "[4/5] Setting permissions and initial configuration..."
-chmod +x /usr/libexec/rpcd/clientmanager /usr/libexec/clientmanager-dhcp-hook /etc/uci-defaults/luci-app-client-manager
+echo "[4/5] Setting permissions and initial setup..."
+chmod +x /usr/libexec/rpcd/luci.clientmanager /usr/libexec/clientmanager-dhcp-hook /etc/uci-defaults/luci-app-client-manager
 
-# Run initial setup
-/etc/uci-defaults/luci-app-client-manager
+# Run initial setup script if present
+if [ -f /etc/uci-defaults/luci-app-client-manager ]; then
+    /etc/uci-defaults/luci-app-client-manager
+fi
 
-# Configure dnsmasq DHCP hook
-uci set dhcp.@dnsmasq[0].dhcpscript='/usr/libexec/clientmanager-dhcp-hook'
-uci commit dhcp
+# Ensure dnsmasq DHCP hook is configured without unnecessary reloads
+NEED_DNSMASQ_RELOAD=0
+CURRENT_HOOK=$(uci -q get dhcp.@dnsmasq[0].dhcpscript || true)
+if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
+    uci set dhcp.@dnsmasq[0].dhcpscript='/usr/libexec/clientmanager-dhcp-hook'
+    uci commit dhcp
+    NEED_DNSMASQ_RELOAD=1
+fi
 
-echo "[5/5] Restarting services..."
-/etc/init.d/rpcd restart
-/etc/init.d/uhttpd restart
-/etc/init.d/dnsmasq restart
+echo "[5/5] Flushing LuCI cache and reloading RPC service..."
+# Clear LuCI index and module caches to force interface refresh
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache*
+
+# Reload rpcd and uhttpd safely (non-disruptive to active network/wifi connections)
+/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart
+/etc/init.d/uhttpd reload 2>/dev/null || /etc/init.d/uhttpd restart
+
+if [ "$NEED_DNSMASQ_RELOAD" -eq 1 ]; then
+    /etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart
+fi
 
 echo "=================================================="
 echo " Installation complete!"
-echo " Access Client Manager in LuCI: Network -> Clients"
+echo " Access Client Manager in LuCI: Clients"
 echo "=================================================="

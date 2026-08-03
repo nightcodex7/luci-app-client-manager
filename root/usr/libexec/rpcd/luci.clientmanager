@@ -1,6 +1,7 @@
-#!/usr/bin/env lua
+#!/usr/bin/lua
 
-local json = require "luci.jsonc"
+local ok, json = pcall(require, "luci.jsonc")
+if not ok then json = require "luci.json" end
 
 ---------------------------------------------------------------------
 -- Utilities

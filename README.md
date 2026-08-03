@@ -66,7 +66,7 @@ scp -r root/* root@192.168.1.1:/
 scp -r htdocs/* root@192.168.1.1:/www/
 
 # 2. Set executable permissions on backend scripts
-ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/clientmanager /usr/libexec/clientmanager-dhcp-hook"
+ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /usr/libexec/clientmanager-dhcp-hook"
 
 # 3. Execute installation defaults
 ssh root@192.168.1.1 "/etc/uci-defaults/luci-app-client-manager"
@@ -83,7 +83,7 @@ ssh root@192.168.1.1 "/etc/init.d/rpcd restart && /etc/init.d/uhttpd restart && 
 | Layer | Component | Technology |
 |---|---|---|
 | Frontend | UI Views | Modern LuCI Client-Side JavaScript (ES6) |
-| Backend | RPC Engine | `rpcd` Lua plugin (`/usr/libexec/rpcd/clientmanager`) |
+| Backend | RPC Engine | `rpcd` Lua plugin (`/usr/libexec/rpcd/luci.clientmanager`) |
 | Access Control | Security | `rpcd` ACL definitions (`/usr/share/rpcd/acl.d/`) |
 | Metadata Store | Config | Custom UCI config file (`/etc/config/clientmanager`) |
 | Data Sources | System Calls | `ubus` (`iwinfo`), `/proc/net/arp`, `/tmp/dhcp.leases`, `conntrack`, `vnstat` |
@@ -145,7 +145,7 @@ luci-app-client-manager/
 │       ├── libexec/
 │       │   ├── clientmanager-dhcp-hook
 │       │   └── rpcd/
-│       │       └── clientmanager
+│       │       └── luci.clientmanager
 │       └── share/
 │           ├── luci/
 │           │   └── menu.d/

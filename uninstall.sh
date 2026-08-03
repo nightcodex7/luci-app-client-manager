@@ -9,6 +9,7 @@ rm -f /etc/config/clientmanager
 rm -f /etc/uci-defaults/luci-app-client-manager
 rm -f /usr/libexec/clientmanager-dhcp-hook
 rm -f /usr/libexec/rpcd/clientmanager
+rm -f /usr/libexec/rpcd/luci.clientmanager
 rm -f /usr/share/luci/menu.d/luci-app-client-manager.json
 rm -f /usr/share/rpcd/acl.d/luci-app-client-manager.json
 rm -rf /www/luci-static/resources/view/clientmanager

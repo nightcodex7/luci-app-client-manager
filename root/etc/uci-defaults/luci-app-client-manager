@@ -3,6 +3,6 @@
 
 [ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
 mkdir -p /tmp/clientmanager
-chmod +x /usr/libexec/rpcd/clientmanager
+chmod +x /usr/libexec/rpcd/luci.clientmanager
 
 exit 0
