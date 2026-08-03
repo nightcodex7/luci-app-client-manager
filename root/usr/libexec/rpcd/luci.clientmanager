@@ -372,9 +372,24 @@ if [ "$1" = "call" ]; then
 					m=$(uci -q get wireless.$s.mode 2>/dev/null || echo "ap")
 					ssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
 					disabled=$(uci -q get wireless.$s.disabled 2>/dev/null || echo "0")
+					macfilter=$(uci -q get wireless.$s.macfilter 2>/dev/null || echo "disable")
+
+					maclist_json="[]"
+					mlist=$(uci -q get wireless.$s.maclist 2>/dev/null || true)
+					if [ -n "$mlist" ]; then
+						m_items=""
+						m_first=1
+						for item in $mlist; do
+							[ "$m_first" -eq 0 ] && m_items="${m_items},"
+							m_first=0
+							m_items="${m_items}\"$item\""
+						done
+						maclist_json="[$m_items]"
+					fi
+
 					[ "$FIRST" -eq 0 ] && IFACES="${IFACES},"
 					FIRST=0
-					IFACES="${IFACES}{\"section\":\"$s\",\"device\":\"$d\",\"mode\":\"$m\",\"ssid\":\"$ssid\",\"disabled\":\"$disabled\"}"
+					IFACES="${IFACES}{\"section\":\"$s\",\"device\":\"$d\",\"mode\":\"$m\",\"ssid\":\"$ssid\",\"disabled\":\"$disabled\",\"macfilter\":\"$macfilter\",\"maclist\":$maclist_json}"
 				done
 			fi
 			IFACES="${IFACES}]"

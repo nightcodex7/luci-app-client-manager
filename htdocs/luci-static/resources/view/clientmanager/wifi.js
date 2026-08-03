@@ -38,7 +38,7 @@ return view.extend({
 		var ifaces = data[1] || [];
 
 		var macSelect = E('select', {
-			'class': 'cbi-input-select',
+			'class': 'cbi-input-select cm-dropdown',
 			'id': 'cm-wifi-mac',
 			'style': 'min-width:300px;margin-bottom:16px;'
 		});
@@ -90,7 +90,7 @@ return view.extend({
 						E('span', { 'style': 'opacity:0.6;font-size:0.85em' },
 							_('Filter mode: ') + (iface.macfilter || 'disable')),
 						maclistStr
-							? E('div', { 'style': 'font-size:0.8e;opacity:0.5;margin-top:2px' },
+							? E('div', { 'style': 'font-size:0.8em;opacity:0.5;margin-top:2px' },
 								_('Current list: ') + maclistStr)
 							: ''
 					])
