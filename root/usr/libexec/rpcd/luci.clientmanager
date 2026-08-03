@@ -14,7 +14,7 @@ cat <<'EOF'
 	"deleteFirewallRule": { "mac": "" },
 	"getBandwidth": {},
 	"getSpeedLimits": {},
-	"setSpeedLimit": { "mac": "", "ip": "", "download_mbps": "", "upload_mbps": "" },
+	"setSpeedLimit": { "mac": "", "ip": "", "download_val": "", "download_unit": "", "upload_val": "", "upload_unit": "" },
 	"deleteSpeedLimit": { "mac": "" }
 }
 EOF
@@ -531,12 +531,14 @@ if [ "$1" = "call" ]; then
 				for s in $(uci -q show clientmanager 2>/dev/null | grep "=limit" | cut -d. -f2 | cut -d= -f1); do
 					lmac=$(uci -q get clientmanager.$s.mac 2>/dev/null || true)
 					lip=$(uci -q get clientmanager.$s.ip 2>/dev/null || true)
-					ldl=$(uci -q get clientmanager.$s.download_mbps 2>/dev/null || echo "0")
-					lul=$(uci -q get clientmanager.$s.upload_mbps 2>/dev/null || echo "0")
+					ldl_val=$(uci -q get clientmanager.$s.download_val 2>/dev/null || uci -q get clientmanager.$s.download_mbps 2>/dev/null || echo "0")
+					ldl_unit=$(uci -q get clientmanager.$s.download_unit 2>/dev/null || echo "Mbps")
+					lul_val=$(uci -q get clientmanager.$s.upload_val 2>/dev/null || uci -q get clientmanager.$s.upload_mbps 2>/dev/null || echo "0")
+					lul_unit=$(uci -q get clientmanager.$s.upload_unit 2>/dev/null || echo "Mbps")
 					if [ -n "$lmac" ]; then
 						[ "$FIRST" -eq 0 ] && LIMITS="${LIMITS},"
 						FIRST=0
-						LIMITS="${LIMITS}{\"section\":\"$s\",\"mac\":\"$lmac\",\"ip\":\"$lip\",\"download_mbps\":$ldl,\"upload_mbps\":$lul}"
+						LIMITS="${LIMITS}{\"section\":\"$s\",\"mac\":\"$lmac\",\"ip\":\"$lip\",\"download_val\":\"$ldl_val\",\"download_unit\":\"$ldl_unit\",\"upload_val\":\"$lul_val\",\"upload_unit\":\"$lul_unit\"}"
 					fi
 				done
 			fi
@@ -547,41 +549,56 @@ if [ "$1" = "call" ]; then
 		setSpeedLimit)
 			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
 			IP=$(echo "$INPUT" | jsonfilter -e '@.ip' 2>/dev/null)
-			DL=$(echo "$INPUT" | jsonfilter -e '@.download_mbps' 2>/dev/null || echo "0")
-			UL=$(echo "$INPUT" | jsonfilter -e '@.upload_mbps' 2>/dev/null || echo "0")
+			DL_VAL=$(echo "$INPUT" | jsonfilter -e '@.download_val' 2>/dev/null || echo "0")
+			DL_UNIT=$(echo "$INPUT" | jsonfilter -e '@.download_unit' 2>/dev/null || echo "Mbps")
+			UL_VAL=$(echo "$INPUT" | jsonfilter -e '@.upload_val' 2>/dev/null || echo "0")
+			UL_UNIT=$(echo "$INPUT" | jsonfilter -e '@.upload_unit' 2>/dev/null || echo "Mbps")
 
 			if [ -n "$MAC" ]; then
 				[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
 				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
 				SEC_NAME="lim_${CLEAN_MAC}"
 
-				# Remove existing section if present
 				uci delete clientmanager.$SEC_NAME 2>/dev/null || true
 
-				if [ "$DL" != "0" ] || [ "$UL" != "0" ]; then
+				if [ -n "$DL_VAL" ] && [ "$DL_VAL" != "0" ] || [ -n "$UL_VAL" ] && [ "$UL_VAL" != "0" ]; then
 					uci set clientmanager.$SEC_NAME=limit
 					uci set clientmanager.$SEC_NAME.mac="$MAC"
 					uci set clientmanager.$SEC_NAME.ip="$IP"
-					uci set clientmanager.$SEC_NAME.download_mbps="$DL"
-					uci set clientmanager.$SEC_NAME.upload_mbps="$UL"
+					uci set clientmanager.$SEC_NAME.download_val="$DL_VAL"
+					uci set clientmanager.$SEC_NAME.download_unit="$DL_UNIT"
+					uci set clientmanager.$SEC_NAME.upload_val="$UL_VAL"
+					uci set clientmanager.$SEC_NAME.upload_unit="$UL_UNIT"
 				fi
 				uci commit clientmanager
 
 				# Apply dynamic nftables / iptables rules if IP is present
-				if [ -n "$IP" ]; then
-					if command -v nft >/dev/null 2>&1; then
-						# Clean old nft rules for this IP
-						nft delete rule inet fw4 forward ip daddr "$IP" 2>/dev/null || true
-						nft delete rule inet fw4 forward ip saddr "$IP" 2>/dev/null || true
+				if [ -n "$IP" ] && command -v nft >/dev/null 2>&1; then
+					nft delete rule inet fw4 forward ip daddr "$IP" 2>/dev/null || true
+					nft delete rule inet fw4 forward ip saddr "$IP" 2>/dev/null || true
 
-						if [ "$DL" != "0" ]; then
-							DL_BYTES=$(awk -v dl="$DL" 'BEGIN {print int(dl*1048576/8)}')
-							nft add rule inet fw4 forward ip daddr "$IP" limit rate over "${DL_BYTES} bytes/second" drop 2>/dev/null || true
-						fi
-						if [ "$UL" != "0" ]; then
-							UL_BYTES=$(awk -v ul="$UL" 'BEGIN {print int(ul*1048576/8)}')
-							nft add rule inet fw4 forward ip saddr "$IP" limit rate over "${UL_BYTES} bytes/second" drop 2>/dev/null || true
-						fi
+					if [ -n "$DL_VAL" ] && [ "$DL_VAL" != "0" ]; then
+						DL_BYTES=$(awk -v val="$DL_VAL" -v unit="$DL_UNIT" 'BEGIN {
+							v = val + 0
+							if (unit == "MBps") bytes = v * 1000000
+							else if (unit == "Kbps") bytes = v * 1000 / 8
+							else if (unit == "KBps") bytes = v * 1000
+							else bytes = v * 1000000 / 8
+							print int(bytes)
+						}')
+						nft add rule inet fw4 forward ip daddr "$IP" limit rate over "${DL_BYTES} bytes/second" drop 2>/dev/null || true
+					fi
+
+					if [ -n "$UL_VAL" ] && [ "$UL_VAL" != "0" ]; then
+						UL_BYTES=$(awk -v val="$UL_VAL" -v unit="$UL_UNIT" 'BEGIN {
+							v = val + 0
+							if (unit == "MBps") bytes = v * 1000000
+							else if (unit == "Kbps") bytes = v * 1000 / 8
+							else if (unit == "KBps") bytes = v * 1000
+							else bytes = v * 1000000 / 8
+							print int(bytes)
+						}')
+						nft add rule inet fw4 forward ip saddr "$IP" limit rate over "${UL_BYTES} bytes/second" drop 2>/dev/null || true
 					fi
 				fi
 			fi

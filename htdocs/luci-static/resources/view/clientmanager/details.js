@@ -38,7 +38,7 @@ var callGetSpeedLimits = rpc.declare({
 var callSetSpeedLimit = rpc.declare({
 	object: 'luci.clientmanager',
 	method: 'setSpeedLimit',
-	params: ['mac', 'ip', 'download_mbps', 'upload_mbps']
+	params: ['mac', 'ip', 'download_val', 'download_unit', 'upload_val', 'upload_unit']
 });
 
 var callDeleteSpeedLimit = rpc.declare({
@@ -116,6 +116,14 @@ function formatIfaceName(ifName, isWireless, ssid, freq) {
 	return ifName;
 }
 
+function formatLimitString(val, unit) {
+	var num = parseFloat(val);
+	if (!isNaN(num) && num > 0) {
+		return num + ' ' + (unit || 'Mbps');
+	}
+	return 'Unlimited';
+}
+
 return view.extend({
 	load: function() {
 		var mac = getMac();
@@ -146,12 +154,14 @@ return view.extend({
 
 		var currentLimit = speedLimits.find(function(l) {
 			return l.mac && l.mac.toUpperCase() === mac.toUpperCase();
-		}) || { download_mbps: 0, upload_mbps: 0 };
+		}) || { download_val: '0', download_unit: 'Mbps', upload_val: '0', upload_unit: 'Mbps' };
 
 		var isBlocked = fwRules.some(function(r) {
 			return r.src_mac && r.src_mac.toUpperCase() === mac.toUpperCase() &&
 				r.target === 'REJECT';
 		});
+
+		var pageTitle = client.hostname ? (client.hostname + ' (' + mac + ')') : mac;
 
 		var blockBtn = E('button', {
 			'class': isBlocked ? 'cbi-button cbi-button-apply' : 'cbi-button cbi-button-negative',
@@ -182,42 +192,53 @@ return view.extend({
 			}
 		}, isBlocked ? _('🔓 Unblock Internet') : _('⛔ Block Internet'));
 
-		var speedLimitOptions = [
-			[0, _('Unlimited (No Limit)')],
-			[1, '1 Mbps'],
-			[2, '2 Mbps'],
-			[5, '5 Mbps'],
-			[10, '10 Mbps'],
-			[20, '20 Mbps'],
-			[50, '50 Mbps'],
-			[100, '100 Mbps']
-		];
-
-		var dlSelect = E('select', { 'class': 'cbi-input-select' });
-		var ulSelect = E('select', { 'class': 'cbi-input-select' });
-
-		speedLimitOptions.forEach(function(opt) {
-			var o1 = E('option', { 'value': opt[0] }, opt[1]);
-			if (parseInt(currentLimit.download_mbps, 10) === opt[0]) o1.selected = true;
-			dlSelect.appendChild(o1);
-
-			var o2 = E('option', { 'value': opt[0] }, opt[1]);
-			if (parseInt(currentLimit.upload_mbps, 10) === opt[0]) o2.selected = true;
-			ulSelect.appendChild(o2);
+		var dlInput = E('input', {
+			'type': 'number',
+			'class': 'cbi-input-text',
+			'style': 'width:120px;margin-right:8px;',
+			'placeholder': 'Unlimited',
+			'min': '0',
+			'step': 'any',
+			'value': (parseFloat(currentLimit.download_val) > 0) ? currentLimit.download_val : ''
 		});
 
-		var applySpeedLimitAction = function(dlVal, ulVal) {
-			callSetSpeedLimit(mac, client.ip || '', dlVal, ulVal).then(function() {
+		var dlUnitSelect = E('select', { 'class': 'cbi-input-select', 'style': 'width:100px;' }, [
+			E('option', { 'value': 'Mbps', 'selected': (currentLimit.download_unit === 'Mbps' || !currentLimit.download_unit) ? true : null }, 'Mbps'),
+			E('option', { 'value': 'MBps', 'selected': currentLimit.download_unit === 'MBps' ? true : null }, 'MBps'),
+			E('option', { 'value': 'Kbps', 'selected': currentLimit.download_unit === 'Kbps' ? true : null }, 'Kbps'),
+			E('option', { 'value': 'KBps', 'selected': currentLimit.download_unit === 'KBps' ? true : null }, 'KBps')
+		]);
+
+		var ulInput = E('input', {
+			'type': 'number',
+			'class': 'cbi-input-text',
+			'style': 'width:120px;margin-right:8px;',
+			'placeholder': 'Unlimited',
+			'min': '0',
+			'step': 'any',
+			'value': (parseFloat(currentLimit.upload_val) > 0) ? currentLimit.upload_val : ''
+		});
+
+		var ulUnitSelect = E('select', { 'class': 'cbi-input-select', 'style': 'width:100px;' }, [
+			E('option', { 'value': 'Mbps', 'selected': (currentLimit.upload_unit === 'Mbps' || !currentLimit.upload_unit) ? true : null }, 'Mbps'),
+			E('option', { 'value': 'MBps', 'selected': currentLimit.upload_unit === 'MBps' ? true : null }, 'MBps'),
+			E('option', { 'value': 'Kbps', 'selected': currentLimit.upload_unit === 'Kbps' ? true : null }, 'Kbps'),
+			E('option', { 'value': 'KBps', 'selected': currentLimit.upload_unit === 'KBps' ? true : null }, 'KBps')
+		]);
+
+		var applySpeedLimitAction = function(dlVal, dlUnit, ulVal, ulUnit) {
+			callSetSpeedLimit(mac, client.ip || '', dlVal, dlUnit, ulVal, ulUnit).then(function() {
 				ui.addNotification(null, E('p', {}, _('Bandwidth limit saved for %s.').format(mac)), 'info');
 				window.location.reload();
 			});
 		};
 
 		var onSaveSpeedLimit = function() {
-			var dlVal = parseInt(dlSelect.value, 10) || 0;
-			var ulVal = parseInt(ulSelect.value, 10) || 0;
+			var dlVal = dlInput.value.trim();
+			var dlUnit = dlUnitSelect.value;
+			var ulVal = ulInput.value.trim();
+			var ulUnit = ulUnitSelect.value;
 
-			// Check if router has low memory / hardware resources
 			if (sysStatus.low_resource || (sysStatus.mem_total_mb > 0 && sysStatus.mem_total_mb < 128)) {
 				ui.showModal(_('Hardware Performance Warning'), [
 					E('div', { 'style': 'color:#e67e22;font-weight:bold;font-size:1.1em;margin-bottom:8px;' },
@@ -236,13 +257,13 @@ return view.extend({
 							'class': 'cbi-button cbi-button-action',
 							'click': function() {
 								ui.hideModal();
-								applySpeedLimitAction(dlVal, ulVal);
+								applySpeedLimitAction(dlVal, dlUnit, ulVal, ulUnit);
 							}
 						}, _('Proceed Anyway (Bypass Warning)'))
 					])
 				]);
 			} else {
-				applySpeedLimitAction(dlVal, ulVal);
+				applySpeedLimitAction(dlVal, dlUnit, ulVal, ulUnit);
 			}
 		};
 
@@ -265,6 +286,8 @@ return view.extend({
 		}, _('Remove Limit'));
 
 		var formattedIface = formatIfaceName(client.interface, client.wireless, client.ssid, client.freq);
+
+		var hasLimit = (parseFloat(currentLimit.download_val) > 0) || (parseFloat(currentLimit.upload_val) > 0);
 
 		var infoTable = E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr' }, [
@@ -310,15 +333,15 @@ return view.extend({
 				E('td', { 'class': 'td', 'style': 'font-weight:bold' },
 					_('Configured Speed Limit')),
 				E('td', { 'class': 'td' },
-					(currentLimit.download_mbps > 0 || currentLimit.upload_mbps > 0)
-						? ('⬇ DL: ' + (currentLimit.download_mbps > 0 ? currentLimit.download_mbps + ' Mbps' : 'Unlimited') +
-						   ' / ⬆ UL: ' + (currentLimit.upload_mbps > 0 ? currentLimit.upload_mbps + ' Mbps' : 'Unlimited'))
+					hasLimit
+						? ('⬇ DL: ' + formatLimitString(currentLimit.download_val, currentLimit.download_unit) +
+						   ' / ⬆ UL: ' + formatLimitString(currentLimit.upload_val, currentLimit.upload_unit))
 						: _('Unlimited'))
 			])
 		]);
 
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', {}, client.hostname || mac),
+			E('h2', {}, pageTitle),
 			E('a', {
 				'href': L.url('admin/clientmanager/dashboard'),
 				'style': 'display:inline-block;margin-bottom:16px;'
@@ -333,16 +356,16 @@ return view.extend({
 				E('legend', {}, _('Bandwidth Speed Limiter')),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Download Limit')),
-					E('div', { 'class': 'cbi-value-field' }, dlSelect)
+					E('div', { 'class': 'cbi-value-field' }, [dlInput, dlUnitSelect])
 				]),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title' }, _('Upload Limit')),
-					E('div', { 'class': 'cbi-value-field' }, ulSelect)
+					E('div', { 'class': 'cbi-value-field' }, [ulInput, ulUnitSelect])
 				]),
 				E('div', { 'class': 'cbi-value' }, [
 					E('div', { 'class': 'cbi-value-field', 'style': 'text-align:right;' }, [
 						applyLimitBtn,
-						(currentLimit.download_mbps > 0 || currentLimit.upload_mbps > 0) ? removeLimitBtn : ''
+						hasLimit ? removeLimitBtn : ''
 					])
 				])
 			]),

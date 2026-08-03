@@ -54,7 +54,7 @@ function buildBandwidthEntries(bandwidth, clients, speedLimits) {
 		if (!c.ip || c.ip === '127.0.0.1' || c.connected === false) return;
 
 		var bw = bwMap[c.ip] || { tx: 0, rx: 0, bytes: 0 };
-		var lim = limitMap[(c.mac || '').toUpperCase()] || { download_mbps: 0, upload_mbps: 0 };
+		var lim = limitMap[(c.mac || '').toUpperCase()] || { download_val: '0', download_unit: 'Mbps', upload_val: '0', upload_unit: 'Mbps' };
 
 		entries.push({
 			displayName: c.hostname || c.ip,
@@ -63,8 +63,10 @@ function buildBandwidthEntries(bandwidth, clients, speedLimits) {
 			tx: bw.tx || 0,
 			rx: bw.rx || 0,
 			bytes: bw.bytes || ((bw.tx || 0) + (bw.rx || 0)),
-			dlLimit: lim.download_mbps || 0,
-			ulLimit: lim.upload_mbps || 0
+			dlVal: lim.download_val || lim.download_mbps || '0',
+			dlUnit: lim.download_unit || 'Mbps',
+			ulVal: lim.upload_val || lim.upload_mbps || '0',
+			ulUnit: lim.upload_unit || 'Mbps'
 		});
 	});
 
@@ -80,10 +82,16 @@ function buildBandwidthEntries(bandwidth, clients, speedLimits) {
 	return entries;
 }
 
-function formatSpeedLimitCell(dl, ul) {
-	if (dl > 0 || ul > 0) {
-		var dlStr = dl > 0 ? dl + 'M' : '∞';
-		var ulStr = ul > 0 ? ul + 'M' : '∞';
+function formatSpeedLimitCell(dlVal, dlUnit, ulVal, ulUnit) {
+	var numDl = parseFloat(dlVal);
+	var numUl = parseFloat(ulVal);
+
+	var hasDl = !isNaN(numDl) && numDl > 0;
+	var hasUl = !isNaN(numUl) && numUl > 0;
+
+	if (hasDl || hasUl) {
+		var dlStr = hasDl ? (numDl + ' ' + (dlUnit || 'Mbps')) : '∞';
+		var ulStr = hasUl ? (numUl + ' ' + (ulUnit || 'Mbps')) : '∞';
 		return E('span', { 'style': 'color:#e67e22;font-weight:bold;font-size:0.9em;' },
 			'⬇ ' + dlStr + ' / ⬆ ' + ulStr);
 	}
@@ -125,7 +133,7 @@ return view.extend({
 					E('td', { 'class': 'td' }, formatBytes(e.rx)),
 					E('td', { 'class': 'td', 'style': 'font-weight:bold' },
 						formatBytes(e.bytes)),
-					E('td', { 'class': 'td' }, formatSpeedLimitCell(e.dlLimit, e.ulLimit))
+					E('td', { 'class': 'td' }, formatSpeedLimitCell(e.dlVal, e.dlUnit, e.ulVal, e.ulUnit))
 				]));
 			});
 		}
@@ -163,7 +171,7 @@ return view.extend({
 							E('td', { 'class': 'td' }, formatBytes(e.rx)),
 							E('td', { 'class': 'td', 'style': 'font-weight:bold' },
 								formatBytes(e.bytes)),
-							E('td', { 'class': 'td' }, formatSpeedLimitCell(e.dlLimit, e.ulLimit))
+							E('td', { 'class': 'td' }, formatSpeedLimitCell(e.dlVal, e.dlUnit, e.ulVal, e.ulUnit))
 						]));
 					});
 				}
