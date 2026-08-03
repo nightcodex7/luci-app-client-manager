@@ -37,7 +37,8 @@ if [ "$1" = "call" ]; then
 			;;
 
 		getClients)
-			TMP_FILE="/tmp/cm_clients_$$.json"
+			TMP_SSID="/tmp/cm_ssid_$$.txt"
+			rm -f "$TMP_SSID"
 
 			TMP_WL="/tmp/cm_wl_$$.txt"
 			rm -f "$TMP_WL"
@@ -45,6 +46,9 @@ if [ "$1" = "call" ]; then
 				# Method 1: iwinfo ubus
 				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
 				for d in $DEVS; do
+					S_NAME=$(ubus call iwinfo info "{\"device\":\"$d\"}" 2>/dev/null | jsonfilter -e '@.ssid' 2>/dev/null || true)
+					[ -n "$S_NAME" ] && echo "$d | $S_NAME" >> "$TMP_SSID"
+
 					ubus call iwinfo assoclist "{\"device\":\"$d\"}" 2>/dev/null | \
 						jsonfilter -e "@.results[*]" -e "mac=@.mac" -e "sig=@.signal" -e "noise=@.noise" 2>/dev/null | \
 						awk -v dev="$d" '
@@ -78,7 +82,19 @@ if [ "$1" = "call" ]; then
 				done
 			fi
 
-			# Method 3: iw station dump
+			# Method 3: uci wireless SSID mapping
+			if command -v uci >/dev/null 2>&1; then
+				for s in $(uci -q show wireless 2>/dev/null | grep "=wifi-iface" | cut -d. -f2 | cut -d= -f1); do
+					wiface=$(uci -q get wireless.$s.ifname 2>/dev/null || uci -q get wireless.$s.device 2>/dev/null || true)
+					wssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
+					if [ -n "$wssid" ]; then
+						[ -n "$wiface" ] && echo "$wiface | $wssid" >> "$TMP_SSID"
+						echo "$s | $wssid" >> "$TMP_SSID"
+					fi
+				done
+			fi
+
+			# Method 4: iw station dump
 			if command -v iw >/dev/null 2>&1; then
 				IW_DEVS=$(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}')
 				for id in $IW_DEVS; do
@@ -172,10 +188,22 @@ if [ "$1" = "call" ]; then
 			[ -f "$LEASE_FILE" ] || LEASE_FILE="/dev/null"
 			[ -f "$ARP_FILE" ] || ARP_FILE="/dev/null"
 
-			awk -v wl_file="$TMP_WL" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" -v def_if="$DEF_IFACE" -v now="$NOW" '
+			awk -v wl_file="$TMP_WL" -v ssid_file="$TMP_SSID" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" -v def_if="$DEF_IFACE" -v now="$NOW" '
 			BEGIN {
 				print "{\"clients\":["
 				first = 1
+
+				if (ssid_file != "") {
+					while ((getline < ssid_file) > 0) {
+						n = split($0, parts, "|")
+						if (n >= 2) {
+							d = parts[1]; gsub(/^[ \t]+|[ \t]+$/, "", d)
+							s = parts[2]; gsub(/^[ \t]+|[ \t]+$/, "", s)
+							if (d != "" && s != "") ssid_map[d] = s
+						}
+					}
+					close(ssid_file)
+				}
 
 				if (wl_file != "") {
 					while ((getline < wl_file) > 0) {
@@ -265,21 +293,23 @@ if [ "$1" = "call" ]; then
 					noise_str = wl_noise[m] ? wl_noise[m] : "null"
 
 					is_conn = (wl_is[m] || arp_active[m] || (lease_exp[m] && lease_exp[m] > now)) ? "true" : "false"
+					c_ssid = ssid_map[if_name] ? ssid_map[if_name] : ""
 
 					h = host[m]; gsub(/\\/, "\\\\", h); gsub(/"/, "\\\"", h)
 					mn = meta_name[m]; gsub(/\\/, "\\\\", mn); gsub(/"/, "\\\"", mn)
 					mo = meta_owner[m]; gsub(/\\/, "\\\\", mo); gsub(/"/, "\\\"", mo)
 					mi = meta_icon[m]; gsub(/\\/, "\\\\", mi); gsub(/"/, "\\\"", mi)
+					ms = c_ssid; gsub(/\\/, "\\\\", ms); gsub(/"/, "\\\"", ms)
 
-					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s,\"connected\":%s}",
+					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"ssid\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s,\"connected\":%s}",
 						m, ip[m], ip6[m], h, mn, mo, mi,
-						(lease_exp[m] ? lease_exp[m] : "0"), if_name, is_wl, sig_str, noise_str, is_conn
+						(lease_exp[m] ? lease_exp[m] : "0"), if_name, ms, is_wl, sig_str, noise_str, is_conn
 				}
 				print "]}"
 			}
 			' "$LEASE_FILE" "$ARP_FILE" > "$TMP_FILE" 2>/dev/null
 
-			rm -f "$TMP_WL" "$TMP_IP6" "$TMP_UCI" "$TMP_META"
+			rm -f "$TMP_WL" "$TMP_SSID" "$TMP_IP6" "$TMP_UCI" "$TMP_META"
 
 			if [ -s "$TMP_FILE" ]; then
 				cat "$TMP_FILE"

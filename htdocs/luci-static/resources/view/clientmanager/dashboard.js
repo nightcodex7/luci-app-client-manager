@@ -61,17 +61,24 @@ function deviceIcon(client) {
 	return E('span', { 'title': _('Connected / Online') }, baseIcon);
 }
 
-function formatIfaceName(ifName, isWireless) {
+function formatIfaceName(ifName, isWireless, ssid) {
 	if (!ifName) return '—';
 	if (!isWireless) return ifName;
+
+	var band = '';
 	var lower = ifName.toLowerCase();
 	if (lower.indexOf('phy0') > -1 || lower.indexOf('wlan0') > -1 || lower.indexOf('ra0') > -1)
-		return '2.4GHz (' + ifName + ')';
-	if (lower.indexOf('phy1') > -1 || lower.indexOf('wlan1') > -1 || lower.indexOf('ra1') > -1)
-		return '5GHz (' + ifName + ')';
-	if (lower.indexOf('phy2') > -1 || lower.indexOf('wlan2') > -1)
-		return '6GHz (' + ifName + ')';
-	return 'Wi-Fi (' + ifName + ')';
+		band = '2.4GHz';
+	else if (lower.indexOf('phy1') > -1 || lower.indexOf('wlan1') > -1 || lower.indexOf('ra1') > -1)
+		band = '5GHz';
+	else if (lower.indexOf('phy2') > -1 || lower.indexOf('wlan2') > -1)
+		band = '6GHz';
+
+	if (ssid) {
+		return band ? (band + ' (' + ssid + ')') : ssid;
+	}
+
+	return band ? (band + ' (' + ifName + ')') : ('Wi-Fi (' + ifName + ')');
 }
 
 function ipToLong(ip) {
@@ -122,7 +129,7 @@ return view.extend({
 
 		var searchInput = E('input', {
 			'type': 'text',
-			'placeholder': _('Search by hostname, IP, MAC, or owner…'),
+			'placeholder': _('Search by hostname, IP, MAC, owner, or SSID…'),
 			'class': 'cbi-input-text',
 			'style': 'width:100%;margin-bottom:12px;padding:8px;font-size:14px;',
 			'id': 'cm-search'
@@ -155,10 +162,16 @@ return view.extend({
 
 		var uniqueIfaces = {};
 		clients.forEach(function(c) {
-			if (c.interface) uniqueIfaces[c.interface] = c.wireless;
+			if (c.interface) {
+				uniqueIfaces[c.interface] = {
+					wireless: c.wireless,
+					ssid: c.ssid
+				};
+			}
 		});
 		Object.keys(uniqueIfaces).sort().forEach(function(ifName) {
-			var label = formatIfaceName(ifName, uniqueIfaces[ifName]);
+			var info = uniqueIfaces[ifName];
+			var label = formatIfaceName(ifName, info.wireless, info.ssid);
 			ifaceOptions.push(E('option', { 'value': ifName }, label));
 		});
 
@@ -308,7 +321,7 @@ return view.extend({
 				subtitle ? E('small', { 'style': 'opacity:0.6' }, subtitle) : ''
 			]);
 
-			var formattedIface = formatIfaceName(c.interface, c.wireless);
+			var formattedIface = formatIfaceName(c.interface, c.wireless, c.ssid);
 
 			var row = E('tr', {
 				'class': 'tr',
@@ -316,7 +329,7 @@ return view.extend({
 					(blocked ? 'opacity:0.5;' : ''),
 				'data-mac': c.mac,
 				'data-search': [
-					displayName, c.hostname, c.ip, c.ip6, c.mac, c.owner, formattedIface
+					displayName, c.hostname, c.ip, c.ip6, c.mac, c.owner, c.ssid, formattedIface
 				].join(' ').toLowerCase(),
 				'click': function(ev) {
 					window.location.href = L.url('admin/clientmanager/details') + '?mac=' + encodeURIComponent(c.mac);
