@@ -92,6 +92,11 @@ if [ "$NEED_DNSMASQ_RELOAD" -eq 1 ]; then
     /etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart
 fi
 
+if [ -x /etc/init.d/vnstat ]; then
+    /etc/init.d/vnstat enable >/dev/null 2>&1 || true
+    /etc/init.d/vnstat start >/dev/null 2>&1 || true
+fi
+
 echo "=================================================="
 echo " Installation complete!"
 echo " Access Client Manager in LuCI: Clients"

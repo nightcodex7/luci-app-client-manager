@@ -9,6 +9,11 @@ var callGetStatistics = rpc.declare({
 	method: 'getStatistics'
 });
 
+var callStartVnstat = rpc.declare({
+	object: 'luci.clientmanager',
+	method: 'startVnstat'
+});
+
 function formatBytes(bytes) {
 	if (!bytes || bytes === 0) return '0 B';
 	var units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -66,17 +71,41 @@ return view.extend({
 		]);
 
 		if (!stats || !stats.available) {
+			var isStopped = stats && stats.reason === 'service_stopped';
+			var reasonText = isStopped
+				? _('vnStat daemon service is stopped or database is initializing.')
+				: _('vnStat package is not installed or enabled.');
+
+			var actionBtn = isStopped
+				? E('button', {
+						'class': 'cbi-button cbi-button-action',
+						'style': 'margin-top:12px;',
+						'click': function() {
+							ui.showModal(_('Starting vnStat…'), [
+								E('p', { 'class': 'spinning' }, _('Starting vnStat daemon service…'))
+							]);
+							callStartVnstat().then(function() {
+								window.setTimeout(function() {
+									window.location.reload();
+								}, 2000);
+							});
+						}
+					}, _('Start vnStat Service'))
+				: '';
+
 			container.appendChild(
 				E('div', { 'class': 'cbi-section',
 					'style': 'text-align:center;padding:32px;' }, [
 					E('p', { 'style': 'font-size:1.2em;opacity:0.6;' },
 						_('Statistics not available')),
-					E('p', {},
-						_('Install vnstat to enable traffic statistics:')),
-					E('code', { 'style': 'display:block;margin:12px auto;' +
-						'padding:8px 16px;background:var(--cbi-section-bg,' +
-						'#f5f5f5);border-radius:4px;max-width:500px;' },
-						'apk add vnstat2  (or: opkg update && opkg install vnstat2)')
+					E('p', {}, reasonText),
+					isStopped ? actionBtn : E('div', {}, [
+						E('p', {}, _('Run one of the following commands on your router to install vnstat:')),
+						E('code', { 'style': 'display:block;margin:12px auto;' +
+							'padding:8px 16px;background:var(--cbi-section-bg,' +
+							'#f5f5f5);border-radius:4px;max-width:500px;' },
+							'apk add vnstat2  (or: opkg update && opkg install vnstat2)')
+					])
 				])
 			);
 			return container;
@@ -84,6 +113,9 @@ return view.extend({
 
 		// Parse vnstat JSON data
 		var vndata = stats.data;
+		if (typeof vndata === 'string') {
+			try { vndata = JSON.parse(vndata); } catch(e) {}
+		}
 		if (vndata && vndata.interfaces) {
 			vndata.interfaces.forEach(function(iface) {
 				var section = E('fieldset', { 'class': 'cbi-section' }, [

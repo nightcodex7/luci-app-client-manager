@@ -19,7 +19,8 @@ cat <<'EOF'
 	"deleteGroup": { "id": "" },
 	"assignGroup": { "mac": "", "group": "", "action": "" },
 	"getHistory": {},
-	"getStatistics": {}
+	"getStatistics": {},
+	"startVnstat": {}
 }
 EOF
 	exit 0
@@ -561,12 +562,34 @@ EOF
 			;;
 
 		getStatistics)
+			if ! command -v vnstat >/dev/null 2>&1; then
+				echo '{"available":false,"reason":"not_installed"}'
+				exit 0
+			fi
+
+			if [ -x /etc/init.d/vnstat ]; then
+				/etc/init.d/vnstat status >/dev/null 2>&1 || /etc/init.d/vnstat start >/dev/null 2>&1 &
+			fi
+
+			VNSTAT=""
 			VNSTAT=$(vnstat --json 2>/dev/null || true)
-			if [ -n "$VNSTAT" ]; then
+			[ -z "$VNSTAT" ] && VNSTAT=$(vnstat --json 1 2>/dev/null || true)
+			[ -z "$VNSTAT" ] && VNSTAT=$(vnstat --json d 2>/dev/null || true)
+
+			FIRST_CHAR=$(echo "$VNSTAT" | awk '{print substr($0,1,1)}')
+			if [ "$FIRST_CHAR" = "{" ]; then
 				echo "{\"available\":true,\"source\":\"vnstat\",\"data\":$VNSTAT}"
 			else
-				echo '{"available":false}'
+				echo '{"available":false,"reason":"service_stopped"}'
 			fi
+			;;
+
+		startVnstat)
+			if [ -x /etc/init.d/vnstat ]; then
+				/etc/init.d/vnstat enable >/dev/null 2>&1 || true
+				/etc/init.d/vnstat start >/dev/null 2>&1 || true
+			fi
+			echo '{"success":true}'
 			;;
 
 		*)
