@@ -129,11 +129,9 @@ return view.extend({
 
 		if (!this.pollRegistered) {
 			this.pollRegistered = true;
-			poll.add(L.bind(function() {
-				return callGetBandwidth().then(L.bind(function(updated) {
-					this.render([updated, clients]);
-				}, this));
-			}, this), 15);
+			poll.add(function() {
+				window.location.reload();
+			}, 30);
 		}
 
 		return view;

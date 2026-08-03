@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 
 REPO_URL="https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main"
 
@@ -21,26 +20,28 @@ else
     exit 1
 fi
 
-echo "[0/5] Verifying system dependencies..."
+echo "[0/6] Verifying system dependencies..."
+# Only install conntrack — backend is pure POSIX shell, no lua needed
 if command -v opkg >/dev/null 2>&1; then
     opkg update >/dev/null 2>&1 || true
-    opkg install lua libuci-lua luci-lib-jsonc conntrack >/dev/null 2>&1 || true
+    opkg install conntrack >/dev/null 2>&1 || true
 elif command -v apk >/dev/null 2>&1; then
-    apk --update-cache add lua libuci-lua luci-lib-jsonc conntrack >/dev/null 2>&1 || true
+    apk add conntrack >/dev/null 2>&1 || true
 fi
 
-echo "[1/5] Preparing directory layout..."
+echo "[1/6] Preparing directory layout..."
 mkdir -p /etc/config
 mkdir -p /etc/uci-defaults
 mkdir -p /usr/libexec/rpcd
 mkdir -p /usr/share/luci/menu.d
 mkdir -p /usr/share/rpcd/acl.d
 mkdir -p /www/luci-static/resources/view/clientmanager
+mkdir -p /tmp/clientmanager
 
 # Clean up legacy backend script if present from older versions
 rm -f /usr/libexec/rpcd/clientmanager
 
-echo "[2/5] Downloading backend and configuration files..."
+echo "[2/6] Downloading backend and configuration files..."
 # Preserve existing user configuration (/etc/config/clientmanager) if present
 if [ ! -f /etc/config/clientmanager ]; then
     $FETCH /etc/config/clientmanager "$REPO_URL/root/etc/config/clientmanager"
@@ -52,13 +53,13 @@ $FETCH /usr/libexec/rpcd/luci.clientmanager "$REPO_URL/root/usr/libexec/rpcd/luc
 $FETCH /usr/share/luci/menu.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/luci/menu.d/luci-app-client-manager.json"
 $FETCH /usr/share/rpcd/acl.d/luci-app-client-manager.json "$REPO_URL/root/usr/share/rpcd/acl.d/luci-app-client-manager.json"
 
-echo "[3/5] Downloading frontend views..."
+echo "[3/6] Downloading frontend views..."
 for view in bandwidth dashboard details firewall groups history statistics wifi; do
     $FETCH "/www/luci-static/resources/view/clientmanager/${view}.js" \
         "$REPO_URL/htdocs/luci-static/resources/view/clientmanager/${view}.js"
 done
 
-echo "[4/5] Setting permissions and initial setup..."
+echo "[4/6] Setting permissions and initial setup..."
 # Strip any DOS line endings that might prevent script execution
 sed -i 's/\r$//' /usr/libexec/rpcd/luci.clientmanager
 sed -i 's/\r$//' /usr/libexec/clientmanager-dhcp-hook
@@ -71,7 +72,7 @@ if [ -f /etc/uci-defaults/luci-app-client-manager ]; then
     /etc/uci-defaults/luci-app-client-manager
 fi
 
-# Ensure dnsmasq DHCP hook is configured
+echo "[5/6] Configuring DHCP hook..."
 NEED_DNSMASQ_RELOAD=0
 CURRENT_HOOK=$(uci -q get dhcp.@dnsmasq[0].dhcpscript || true)
 if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
@@ -80,16 +81,17 @@ if [ "$CURRENT_HOOK" != "/usr/libexec/clientmanager-dhcp-hook" ]; then
     NEED_DNSMASQ_RELOAD=1
 fi
 
-echo "[5/5] Flushing LuCI index cache and restarting services..."
+echo "[6/6] Flushing LuCI cache and restarting services..."
 # Clear LuCI index and module caches safely without touching session locks
 rm -f /tmp/luci-indexcache /tmp/luci-modulecache* 2>/dev/null || true
 
-# Restart rpcd and uhttpd daemons cleanly
-/etc/init.d/rpcd restart
-/etc/init.d/uhttpd restart
+# Restart rpcd and uhttpd daemons cleanly — don't abort on failure
+/etc/init.d/rpcd restart 2>/dev/null || true
+sleep 1
+/etc/init.d/uhttpd restart 2>/dev/null || true
 
 if [ "$NEED_DNSMASQ_RELOAD" -eq 1 ]; then
-    /etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart
+    /etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart 2>/dev/null || true
 fi
 
 if [ -x /etc/init.d/vnstat ]; then

@@ -180,10 +180,10 @@ return view.extend({
 		if (!this.pollRegistered) {
 			this.pollRegistered = true;
 			poll.add(L.bind(function() {
-				return callGetClients().then(L.bind(function(updated) {
+				return callGetClients().then(function(updated) {
 					if (updated && updated.length !== clients.length)
-						this.render([updated, rules]);
-				}, this));
+						window.location.reload();
+				});
 			}, this), 30);
 		}
 

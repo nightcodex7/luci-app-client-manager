@@ -199,44 +199,91 @@ if [ "$1" = "call" ]; then
 
 			IP=""
 			HOST=""
-			EXP="0"
+			LEASE_EXP="0"
 			IFACE=""
+			IS_WL="false"
+			SIG="null"
+			NOISE="null"
 
+			# DHCP leases
 			if [ -f /tmp/dhcp.leases ]; then
 				LINE=$(grep -i "$MAC" /tmp/dhcp.leases | head -n 1)
 				if [ -n "$LINE" ]; then
-					EXP=$(echo "$LINE" | awk '{print $1}')
+					LEASE_EXP=$(echo "$LINE" | awk '{print $1}')
 					IP=$(echo "$LINE" | awk '{print $3}')
 					H=$(echo "$LINE" | awk '{print $4}')
 					[ "$H" != "*" ] && HOST="$H"
 				fi
 			fi
 
-			if [ -z "$IP" ] && [ -f /proc/net/arp ]; then
-				LINE=$(grep -i "$MAC" /proc/net/arp | head -n 1)
-				if [ -n "$LINE" ]; then
-					IP=$(echo "$LINE" | awk '{print $1}')
-					IFACE=$(echo "$LINE" | awk '{print $6}')
+			# ARP table
+			if [ -f /proc/net/arp ]; then
+				ALINE=$(grep -i "$MAC" /proc/net/arp | head -n 1)
+				if [ -n "$ALINE" ]; then
+					[ -z "$IP" ] && IP=$(echo "$ALINE" | awk '{print $1}')
+					IFACE=$(echo "$ALINE" | awk '{print $6}')
 				fi
 			fi
 
-			cat <<EOF
-{
-	"client": {
-		"mac": "$MAC",
-		"ip": "$IP",
-		"hostname": "$HOST",
-		"name": "",
-		"owner": "",
-		"notes": "",
-		"icon": "",
-		"groups": [],
-		"expires": $EXP,
-		"interface": "$IFACE",
-		"wireless": false
-	}
-}
-EOF
+			# Wireless check
+			if command -v ubus >/dev/null 2>&1; then
+				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
+				for d in $DEVS; do
+					ASSOC=$(ubus call iwinfo assoclist "{\"device\":\"$d\"}" 2>/dev/null || true)
+					if echo "$ASSOC" | grep -qi "$MAC" 2>/dev/null; then
+						IS_WL="true"
+						IFACE="$d"
+						SIG_VAL=$(echo "$ASSOC" | jsonfilter -e "@.results[@.mac='$MAC'].signal" 2>/dev/null || true)
+						NOISE_VAL=$(echo "$ASSOC" | jsonfilter -e "@.results[@.mac='$MAC'].noise" 2>/dev/null || true)
+						[ -n "$SIG_VAL" ] && SIG="$SIG_VAL"
+						[ -n "$NOISE_VAL" ] && NOISE="$NOISE_VAL"
+						break
+					fi
+				done
+			fi
+
+			# Load UCI metadata
+			CM_NAME=""
+			CM_OWNER=""
+			CM_NOTES=""
+			CM_ICON=""
+			CM_GROUPS="[]"
+			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
+				for s in $(uci -q show clientmanager 2>/dev/null | grep "=client" | cut -d. -f2 | cut -d= -f1); do
+					smac=$(uci -q get clientmanager.$s.mac 2>/dev/null | tr 'a-z' 'A-Z')
+					if [ "$smac" = "$MAC" ]; then
+						CM_NAME=$(uci -q get clientmanager.$s.name 2>/dev/null || true)
+						CM_OWNER=$(uci -q get clientmanager.$s.owner 2>/dev/null || true)
+						CM_NOTES=$(uci -q get clientmanager.$s.notes 2>/dev/null || true)
+						CM_ICON=$(uci -q get clientmanager.$s.icon 2>/dev/null || true)
+						# Build groups array
+						GLIST="["
+						GFIRST=1
+						for g in $(uci -q get clientmanager.$s.groups 2>/dev/null || true); do
+							[ "$GFIRST" -eq 0 ] && GLIST="${GLIST},"
+							GFIRST=0
+							GLIST="${GLIST}\"${g}\""
+						done
+						GLIST="${GLIST}]"
+						CM_GROUPS="$GLIST"
+						break
+					fi
+				done
+			fi
+
+			# Also check dhcp static host for hostname
+			if [ -z "$HOST" ] && command -v uci >/dev/null 2>&1; then
+				for s in $(uci -q show dhcp 2>/dev/null | grep "=host" | cut -d. -f2 | cut -d= -f1); do
+					hmac=$(uci -q get dhcp.$s.mac 2>/dev/null | tr 'a-z' 'A-Z' | awk '{print $1}')
+					if [ "$hmac" = "$MAC" ]; then
+						HOST=$(uci -q get dhcp.$s.name 2>/dev/null || true)
+						break
+					fi
+				done
+			fi
+
+			printf '{"client":{"mac":"%s","ip":"%s","hostname":"%s","name":"%s","owner":"%s","notes":"%s","icon":"%s","groups":%s,"expires":%s,"interface":"%s","wireless":%s,"signal":%s,"noise":%s}}\n' \
+				"$MAC" "$IP" "$HOST" "$CM_NAME" "$CM_OWNER" "$CM_NOTES" "$CM_ICON" "$CM_GROUPS" "$LEASE_EXP" "$IFACE" "$IS_WL" "$SIG" "$NOISE"
 			;;
 
 		setClientMeta)
