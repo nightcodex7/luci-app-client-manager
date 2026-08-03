@@ -61,24 +61,39 @@ function deviceIcon(client) {
 	return E('span', { 'title': _('Connected / Online') }, baseIcon);
 }
 
-function formatIfaceName(ifName, isWireless, ssid) {
+function formatRadioFreq(freq, ifName) {
+	if (!freq) {
+		var lower = (ifName || '').toLowerCase();
+		if (lower.indexOf('phy0') > -1 || lower.indexOf('wlan0') > -1 || lower.indexOf('ra0') > -1)
+			return '2.4 GHz';
+		if (lower.indexOf('phy1') > -1 || lower.indexOf('wlan1') > -1 || lower.indexOf('ra1') > -1)
+			return '5 GHz';
+		if (lower.indexOf('phy2') > -1 || lower.indexOf('wlan2') > -1)
+			return '6 GHz';
+		return '';
+	}
+	var num = parseFloat(freq);
+	if (!isNaN(num) && num > 100) {
+		return (num / 1000).toFixed(3) + ' GHz';
+	}
+	return freq;
+}
+
+function formatIfaceName(ifName, isWireless, ssid, freq) {
 	if (!ifName) return '—';
 	if (!isWireless) return ifName;
 
-	var band = '';
-	var lower = ifName.toLowerCase();
-	if (lower.indexOf('phy0') > -1 || lower.indexOf('wlan0') > -1 || lower.indexOf('ra0') > -1)
-		band = '2.4GHz';
-	else if (lower.indexOf('phy1') > -1 || lower.indexOf('wlan1') > -1 || lower.indexOf('ra1') > -1)
-		band = '5GHz';
-	else if (lower.indexOf('phy2') > -1 || lower.indexOf('wlan2') > -1)
-		band = '6GHz';
+	var radioFreq = formatRadioFreq(freq, ifName);
 
-	if (ssid) {
-		return band ? (band + ' (' + ssid + ')') : ssid;
+	if (ssid && radioFreq) {
+		return ifName + '(' + ssid + '(' + radioFreq + '))';
+	} else if (ssid) {
+		return ifName + '(' + ssid + ')';
+	} else if (radioFreq) {
+		return ifName + '(' + radioFreq + ')';
 	}
 
-	return band ? (band + ' (' + ifName + ')') : ('Wi-Fi (' + ifName + ')');
+	return ifName;
 }
 
 function ipToLong(ip) {
@@ -156,23 +171,18 @@ return view.extend({
 
 		var ifaceOptions = [
 			E('option', { 'value': 'all', 'selected': 'selected' }, _('Interface (All)')),
-			E('option', { 'value': 'wireless' }, _('Wireless Only')),
-			E('option', { 'value': 'wired' }, _('Wired Only'))
+			E('option', { 'value': 'wireless' }, _('Wireless')),
+			E('option', { 'value': 'wired' }, _('Wired'))
 		];
 
 		var uniqueIfaces = {};
 		clients.forEach(function(c) {
 			if (c.interface) {
-				uniqueIfaces[c.interface] = {
-					wireless: c.wireless,
-					ssid: c.ssid
-				};
+				uniqueIfaces[c.interface] = true;
 			}
 		});
 		Object.keys(uniqueIfaces).sort().forEach(function(ifName) {
-			var info = uniqueIfaces[ifName];
-			var label = formatIfaceName(ifName, info.wireless, info.ssid);
-			ifaceOptions.push(E('option', { 'value': ifName }, label));
+			ifaceOptions.push(E('option', { 'value': ifName }, ifName));
 		});
 
 		var ifaceFilterSelect = E('select', {
@@ -321,7 +331,7 @@ return view.extend({
 				subtitle ? E('small', { 'style': 'opacity:0.6' }, subtitle) : ''
 			]);
 
-			var formattedIface = formatIfaceName(c.interface, c.wireless, c.ssid);
+			var formattedIface = formatIfaceName(c.interface, c.wireless, c.ssid, c.freq);
 
 			var row = E('tr', {
 				'class': 'tr',
