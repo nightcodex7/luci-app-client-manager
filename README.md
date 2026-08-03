@@ -12,7 +12,7 @@
 
 - **Device Dashboard**: Consolidates DHCP leases (`/tmp/dhcp.leases`), ARP table (`/proc/net/arp`), neighbor table (`ip neighbor`), and wireless associations into a unified device list.
 - **Dual-Stack IPv4 & IPv6**: Automatically discovers and displays both IPv4 and IPv6 addresses per device.
-- **Normalized Interface Column**: Displays interface and wireless telemetry as `InterfaceName(SSID(Frequency))` (e.g., `br-lan(Titanic(5.745 GHz))`).
+- **Normalized Interface Column**: Displays interface and wireless telemetry as `InterfaceName(SSID(Frequency))` (e.g., `br-lan(SSID1(5.745 GHz))`).
 - **Clean Dropdown Filters**:
   - Filter by IP type (IPv4 / IPv6 / Both).
   - Filter by Interface (Wired / Wireless / Specific local network bridges like `br-lan`, `br-guest`).
