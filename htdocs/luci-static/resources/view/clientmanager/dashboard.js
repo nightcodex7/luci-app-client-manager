@@ -129,11 +129,8 @@ return view.extend({
 			'id': 'cm-search'
 		});
 
-		var selectStyle = 'font-weight:bold;background-color:var(--background-color-medium, #2b2b2b);color:var(--text-color-high, #ffffff);border:1px solid var(--border-color-medium, #555);border-radius:4px;padding:3px 6px;cursor:pointer;';
-
 		var ipFilterSelect = E('select', {
-			'class': 'cbi-input-select',
-			'style': selectStyle,
+			'class': 'cbi-input-select cm-dropdown',
 			'id': 'cm-ip-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -170,8 +167,7 @@ return view.extend({
 		});
 
 		var ifaceFilterSelect = E('select', {
-			'class': 'cbi-input-select',
-			'style': selectStyle,
+			'class': 'cbi-input-select cm-dropdown',
 			'id': 'cm-iface-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -183,8 +179,7 @@ return view.extend({
 		}, ifaceOptions);
 
 		var leaseFilterSelect = E('select', {
-			'class': 'cbi-input-select',
-			'style': selectStyle,
+			'class': 'cbi-input-select cm-dropdown',
 			'id': 'cm-lease-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -200,8 +195,7 @@ return view.extend({
 		]);
 
 		var statusFilterSelect = E('select', {
-			'class': 'cbi-input-select',
-			'style': selectStyle,
+			'class': 'cbi-input-select cm-dropdown',
 			'id': 'cm-status-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -364,8 +358,33 @@ return view.extend({
 		]);
 
 		var dropdownStyleElem = E('style', {},
-			'select.cbi-input-select option { background-color: #2b2b2b !important; color: #ffffff !important; }\n' +
-			'body:not([data-theme="dark"]) select.cbi-input-select option { background-color: #ffffff !important; color: #333333 !important; }'
+			'select.cm-dropdown, select.cbi-input-select {\n' +
+			'  font-weight: bold;\n' +
+			'  padding: 4px 8px;\n' +
+			'  border-radius: 4px;\n' +
+			'  cursor: pointer;\n' +
+			'  background-color: var(--background-color-medium, #2b2b2b) !important;\n' +
+			'  color: var(--text-color-high, #ffffff) !important;\n' +
+			'  border: 1px solid var(--border-color-medium, #555) !important;\n' +
+			'}\n' +
+			'select.cm-dropdown option, select.cbi-input-select option {\n' +
+			'  background-color: #2b2b2b !important;\n' +
+			'  color: #ffffff !important;\n' +
+			'  padding: 6px;\n' +
+			'}\n' +
+			'body:not([data-theme="dark"]) select.cm-dropdown, body:not([data-theme="dark"]) select.cbi-input-select {\n' +
+			'  background-color: #ffffff !important;\n' +
+			'  color: #2d3748 !important;\n' +
+			'  border-color: #cbd5e0 !important;\n' +
+			'}\n' +
+			'body:not([data-theme="dark"]) select.cm-dropdown option, body:not([data-theme="dark"]) select.cbi-input-select option {\n' +
+			'  background-color: #ffffff !important;\n' +
+			'  color: #2d3748 !important;\n' +
+			'}\n' +
+			'select.cm-dropdown option:checked, select.cm-dropdown option:hover, select.cbi-input-select option:checked {\n' +
+			'  background-color: #3182ce !important;\n' +
+			'  color: #ffffff !important;\n' +
+			'}'
 		);
 
 		return E('div', { 'class': 'cbi-map' }, [
