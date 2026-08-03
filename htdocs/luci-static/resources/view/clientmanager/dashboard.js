@@ -36,18 +36,51 @@ function signalIcon(signal) {
 
 function deviceIcon(client) {
 	var icon = client.icon;
-	if (icon === 'phone') return '📱';
-	if (icon === 'laptop') return '💻';
-	if (icon === 'desktop') return '🖥️';
-	if (icon === 'tablet') return '📲';
-	if (icon === 'tv') return '📺';
-	if (icon === 'iot') return '🔌';
-	if (icon === 'printer') return '🖨️';
-	if (icon === 'camera') return '📷';
-	if (icon === 'gaming') return '🎮';
-	if (icon === 'server') return '🖧';
-	if (client.wireless) return '📶';
-	return '🔗';
+	var isConn = (client.connected !== false);
+
+	var baseIcon = '🔗';
+	if (icon === 'phone') baseIcon = '📱';
+	else if (icon === 'laptop') baseIcon = '💻';
+	else if (icon === 'desktop') baseIcon = '🖥️';
+	else if (icon === 'tablet') baseIcon = '📲';
+	else if (icon === 'tv') baseIcon = '📺';
+	else if (icon === 'iot') baseIcon = '🔌';
+	else if (icon === 'printer') baseIcon = '🖨️';
+	else if (icon === 'camera') baseIcon = '📷';
+	else if (icon === 'gaming') baseIcon = '🎮';
+	else if (icon === 'server') baseIcon = '🖧';
+	else if (client.wireless) baseIcon = '📶';
+
+	if (!isConn) {
+		return E('span', {
+			'style': 'opacity:0.35;filter:grayscale(100%);display:inline-block;',
+			'title': _('Disconnected / Offline')
+		}, baseIcon);
+	}
+
+	return E('span', { 'title': _('Connected / Online') }, baseIcon);
+}
+
+function formatIfaceName(ifName, isWireless) {
+	if (!ifName) return '—';
+	if (!isWireless) return ifName;
+	var lower = ifName.toLowerCase();
+	if (lower.indexOf('phy0') > -1 || lower.indexOf('wlan0') > -1 || lower.indexOf('ra0') > -1)
+		return '2.4GHz (' + ifName + ')';
+	if (lower.indexOf('phy1') > -1 || lower.indexOf('wlan1') > -1 || lower.indexOf('ra1') > -1)
+		return '5GHz (' + ifName + ')';
+	if (lower.indexOf('phy2') > -1 || lower.indexOf('wlan2') > -1)
+		return '6GHz (' + ifName + ')';
+	return 'Wi-Fi (' + ifName + ')';
+}
+
+function ipToLong(ip) {
+	if (!ip) return 999999999999;
+	var p = ip.split('.');
+	if (p.length === 4) {
+		return (+p[0] * 16777216) + (+p[1] * 65536) + (+p[2] * 256) + (+p[3]);
+	}
+	return 999999999999;
 }
 
 return view.extend({
@@ -64,6 +97,23 @@ return view.extend({
 		var clients = data[0] || [];
 		var rules = data[1] || [];
 
+		// Sort clients: 1. Connected first, 2. Ascending numerical IP
+		clients.sort(function(a, b) {
+			var aConn = (a.connected !== false) ? 1 : 0;
+			var bConn = (b.connected !== false) ? 1 : 0;
+			if (aConn !== bConn) {
+				return bConn - aConn;
+			}
+
+			var numA = ipToLong(a.ip);
+			var numB = ipToLong(b.ip);
+			if (numA !== numB) {
+				return numA - numB;
+			}
+
+			return (a.mac || '').localeCompare(b.mac || '');
+		});
+
 		var blockedMacs = {};
 		rules.forEach(function(r) {
 			if (r.target === 'REJECT' && r.src_mac)
@@ -78,9 +128,11 @@ return view.extend({
 			'id': 'cm-search'
 		});
 
+		var selectStyle = 'font-weight:bold;background-color:var(--background-color-medium, #2b2b2b);color:var(--text-color-high, #ffffff);border:1px solid var(--border-color-medium, #555);border-radius:4px;padding:3px 6px;cursor:pointer;';
+
 		var ipFilterSelect = E('select', {
 			'class': 'cbi-input-select',
-			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'style': selectStyle,
 			'id': 'cm-ip-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -103,15 +155,16 @@ return view.extend({
 
 		var uniqueIfaces = {};
 		clients.forEach(function(c) {
-			if (c.interface) uniqueIfaces[c.interface] = true;
+			if (c.interface) uniqueIfaces[c.interface] = c.wireless;
 		});
 		Object.keys(uniqueIfaces).sort().forEach(function(ifName) {
-			ifaceOptions.push(E('option', { 'value': ifName }, ifName));
+			var label = formatIfaceName(ifName, uniqueIfaces[ifName]);
+			ifaceOptions.push(E('option', { 'value': ifName }, label));
 		});
 
 		var ifaceFilterSelect = E('select', {
 			'class': 'cbi-input-select',
-			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'style': selectStyle,
 			'id': 'cm-iface-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -124,7 +177,7 @@ return view.extend({
 
 		var leaseFilterSelect = E('select', {
 			'class': 'cbi-input-select',
-			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'style': selectStyle,
 			'id': 'cm-lease-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -141,7 +194,7 @@ return view.extend({
 
 		var statusFilterSelect = E('select', {
 			'class': 'cbi-input-select',
-			'style': 'font-weight:bold;background:transparent;border:1px solid rgba(128,128,128,0.3);border-radius:3px;padding:2px 4px;cursor:pointer;',
+			'style': selectStyle,
 			'id': 'cm-status-filter',
 			'change': function(ev) {
 				ev.stopPropagation();
@@ -255,13 +308,15 @@ return view.extend({
 				subtitle ? E('small', { 'style': 'opacity:0.6' }, subtitle) : ''
 			]);
 
+			var formattedIface = formatIfaceName(c.interface, c.wireless);
+
 			var row = E('tr', {
 				'class': 'tr',
 				'style': 'cursor:pointer;' +
 					(blocked ? 'opacity:0.5;' : ''),
 				'data-mac': c.mac,
 				'data-search': [
-					displayName, c.hostname, c.ip, c.ip6, c.mac, c.owner
+					displayName, c.hostname, c.ip, c.ip6, c.mac, c.owner, formattedIface
 				].join(' ').toLowerCase(),
 				'click': function(ev) {
 					window.location.href = L.url('admin/clientmanager/details') + '?mac=' + encodeURIComponent(c.mac);
@@ -273,7 +328,7 @@ return view.extend({
 				E('td', { 'class': 'td cm-ip-td' }, renderIpCellContent(c, 'all')),
 				E('td', { 'class': 'td' },
 					E('code', { 'style': 'font-size:0.85em' }, c.mac)),
-				E('td', { 'class': 'td' }, c.interface || '—'),
+				E('td', { 'class': 'td' }, formattedIface),
 				E('td', { 'class': 'td', 'title': c.signal ? c.signal + ' dBm' : '' },
 					c.wireless ? signalIcon(c.signal) : '—'),
 				E('td', { 'class': 'td' }, formatExpiry(c.expires)),
@@ -304,7 +359,13 @@ return view.extend({
 			Object.keys(blockedMacs).length + ' ' + _('blocked')
 		]);
 
+		var dropdownStyleElem = E('style', {},
+			'select.cbi-input-select option { background-color: #2b2b2b !important; color: #ffffff !important; }\n' +
+			'body:not([data-theme="dark"]) select.cbi-input-select option { background-color: #ffffff !important; color: #333333 !important; }'
+		);
+
 		var view = E('div', { 'class': 'cbi-map' }, [
+			dropdownStyleElem,
 			E('h2', {}, _('Client Manager')),
 			E('div', { 'class': 'cbi-map-descr' },
 				_('View and manage all devices connected to your router.')),

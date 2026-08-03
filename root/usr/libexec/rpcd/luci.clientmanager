@@ -166,12 +166,13 @@ if [ "$1" = "call" ]; then
 				[ -n "$D_IF" ] && DEF_IFACE="$D_IF"
 			fi
 
+			NOW=$(date +%s)
 			LEASE_FILE="/tmp/dhcp.leases"
 			ARP_FILE="/proc/net/arp"
 			[ -f "$LEASE_FILE" ] || LEASE_FILE="/dev/null"
 			[ -f "$ARP_FILE" ] || ARP_FILE="/dev/null"
 
-			awk -v wl_file="$TMP_WL" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" -v def_if="$DEF_IFACE" '
+			awk -v wl_file="$TMP_WL" -v ip6_file="$TMP_IP6" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" -v def_if="$DEF_IFACE" -v now="$NOW" '
 			BEGIN {
 				print "{\"clients\":["
 				first = 1
@@ -247,6 +248,7 @@ if [ "$1" = "call" ]; then
 				if (length(mac) == 17 && mac ~ /^[0-9A-FA-F:]+$/ && mac != "00:00:00:00:00:00" && $3 != "0x0") {
 					if (!ip[mac]) ip[mac] = $1
 					if (!iface[mac]) iface[mac] = $6
+					arp_active[mac] = 1
 					seen[mac] = 1
 				}
 			}
@@ -262,14 +264,16 @@ if [ "$1" = "call" ]; then
 					sig_str = wl_sig[m] ? wl_sig[m] : "null"
 					noise_str = wl_noise[m] ? wl_noise[m] : "null"
 
+					is_conn = (wl_is[m] || arp_active[m] || (lease_exp[m] && lease_exp[m] > now)) ? "true" : "false"
+
 					h = host[m]; gsub(/\\/, "\\\\", h); gsub(/"/, "\\\"", h)
 					mn = meta_name[m]; gsub(/\\/, "\\\\", mn); gsub(/"/, "\\\"", mn)
 					mo = meta_owner[m]; gsub(/\\/, "\\\\", mo); gsub(/"/, "\\\"", mo)
 					mi = meta_icon[m]; gsub(/\\/, "\\\\", mi); gsub(/"/, "\\\"", mi)
 
-					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s}",
+					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"ip6\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s,\"connected\":%s}",
 						m, ip[m], ip6[m], h, mn, mo, mi,
-						(lease_exp[m] ? lease_exp[m] : "0"), if_name, is_wl, sig_str, noise_str
+						(lease_exp[m] ? lease_exp[m] : "0"), if_name, is_wl, sig_str, noise_str, is_conn
 				}
 				print "]}"
 			}
