@@ -1,0 +1,75 @@
+{
+	"admin/clientmanager": {
+		"title": "Clients",
+		"order": 25,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-client-manager" ]
+		}
+	},
+	"admin/clientmanager/dashboard": {
+		"title": "Dashboard",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/dashboard"
+		}
+	},
+	"admin/clientmanager/details": {
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/details"
+		}
+	},
+	"admin/clientmanager/wifi": {
+		"title": "WiFi Access",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/wifi"
+		}
+	},
+	"admin/clientmanager/firewall": {
+		"title": "Firewall",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/firewall"
+		}
+	},
+	"admin/clientmanager/bandwidth": {
+		"title": "Bandwidth",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/bandwidth"
+		}
+	},
+	"admin/clientmanager/groups": {
+		"title": "Groups",
+		"order": 6,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/groups"
+		}
+	},
+	"admin/clientmanager/history": {
+		"title": "History",
+		"order": 7,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/history"
+		}
+	},
+	"admin/clientmanager/statistics": {
+		"title": "Statistics",
+		"order": 8,
+		"action": {
+			"type": "view",
+			"path": "clientmanager/statistics"
+		}
+	}
+}

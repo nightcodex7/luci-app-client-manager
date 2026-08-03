@@ -1,0 +1,33 @@
+{
+	"luci-app-client-manager": {
+		"description": "Grant access to Client Manager",
+		"read": {
+			"ubus": {
+				"luci.clientmanager": [
+					"getStatus",
+					"getClients",
+					"getClientDetail",
+					"getWifiInterfaces",
+					"getFirewallRules",
+					"getBandwidth",
+					"getGroups",
+					"getHistory",
+					"getStatistics"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.clientmanager": [
+					"setClientMeta",
+					"setMacFilter",
+					"setFirewallRule",
+					"deleteFirewallRule",
+					"setGroup",
+					"deleteGroup",
+					"assignGroup"
+				]
+			}
+		}
+	}
+}

@@ -1,0 +1,222 @@
+# English translations for luci-app-client-manager
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Client Manager"
+msgstr "Client Manager"
+
+msgid "View and manage all devices connected to your router."
+msgstr "View and manage all devices connected to your router."
+
+msgid "Search by hostname, IP, MAC, or owner…"
+msgstr "Search by hostname, IP, MAC, or owner…"
+
+msgid "client(s) connected"
+msgstr "client(s) connected"
+
+msgid "wireless"
+msgstr "wireless"
+
+msgid "blocked"
+msgstr "blocked"
+
+msgid "Name / Hostname"
+msgstr "Name / Hostname"
+
+msgid "IP Address"
+msgstr "IP Address"
+
+msgid "MAC Address"
+msgstr "MAC Address"
+
+msgid "Interface"
+msgstr "Interface"
+
+msgid "Signal"
+msgstr "Signal"
+
+msgid "Lease"
+msgstr "Lease"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Static"
+msgstr "Static"
+
+msgid "Expired"
+msgstr "Expired"
+
+msgid "Online"
+msgstr "Online"
+
+msgid "Blocked"
+msgstr "Blocked"
+
+msgid "Allowed"
+msgstr "Allowed"
+
+msgid "Unknown"
+msgstr "Unknown"
+
+msgid "No connected clients found."
+msgstr "No connected clients found."
+
+msgid "Device Details"
+msgstr "Device Details"
+
+msgid "Device Information"
+msgstr "Device Information"
+
+msgid "Custom Metadata"
+msgstr "Custom Metadata"
+
+msgid "Display Name"
+msgstr "Display Name"
+
+msgid "Owner"
+msgstr "Owner"
+
+msgid "Icon"
+msgstr "Icon"
+
+msgid "Notes"
+msgstr "Notes"
+
+msgid "Connection"
+msgstr "Connection"
+
+msgid "Wireless"
+msgstr "Wireless"
+
+msgid "Wired"
+msgstr "Wired"
+
+msgid "Internet Access"
+msgstr "Internet Access"
+
+msgid "Block Internet"
+msgstr "Block Internet"
+
+msgid "Unblock Internet"
+msgstr "Unblock Internet"
+
+msgid "Settings saved."
+msgstr "Settings saved."
+
+msgid "Back to Client List"
+msgstr "Back to Client List"
+
+msgid "WiFi Access Control"
+msgstr "WiFi Access Control"
+
+msgid "Manage which SSIDs a device is allowed to connect to using MAC filtering."
+msgstr "Manage which SSIDs a device is allowed to connect to using MAC filtering."
+
+msgid "Select a device"
+msgstr "Select a device"
+
+msgid "Apply Changes"
+msgstr "Apply Changes"
+
+msgid "MAC filter updated. WiFi is reloading…"
+msgstr "MAC filter updated. WiFi is reloading…"
+
+msgid "Firewall Policies"
+msgstr "Firewall Policies"
+
+msgid "Device"
+msgstr "Device"
+
+msgid "Action"
+msgstr "Action"
+
+msgid "Bandwidth Monitor"
+msgstr "Bandwidth Monitor"
+
+msgid "Traffic"
+msgstr "Traffic"
+
+msgid "Refresh"
+msgstr "Refresh"
+
+msgid "Device Groups"
+msgstr "Device Groups"
+
+msgid "Create Group"
+msgstr "Create Group"
+
+msgid "Add Group"
+msgstr "Add Group"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "Delete Group"
+msgstr "Delete Group"
+
+msgid "Members"
+msgstr "Members"
+
+msgid "device(s)"
+msgstr "device(s)"
+
+msgid "No members"
+msgstr "No members"
+
+msgid "No groups defined yet."
+msgstr "No groups defined yet."
+
+msgid "Connection History"
+msgstr "Connection History"
+
+msgid "Connected"
+msgstr "Connected"
+
+msgid "Disconnected"
+msgstr "Disconnected"
+
+msgid "Event"
+msgstr "Event"
+
+msgid "When"
+msgstr "When"
+
+msgid "Traffic Statistics"
+msgstr "Traffic Statistics"
+
+msgid "Statistics not available"
+msgstr "Statistics not available"
+
+msgid "Daily Traffic (Last 14 Days)"
+msgstr "Daily Traffic (Last 14 Days)"
+
+msgid "Monthly Traffic"
+msgstr "Monthly Traffic"
+
+msgid "Download"
+msgstr "Download"
+
+msgid "Upload"
+msgstr "Upload"
+
+msgid "Total"
+msgstr "Total"
+
+msgid "Date"
+msgstr "Date"
+
+msgid "Month"
+msgstr "Month"
+
+msgid "Groups"
+msgstr "Groups"
+
+msgid "Confirm"
+msgstr "Confirm"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Save"
+msgstr "Save"

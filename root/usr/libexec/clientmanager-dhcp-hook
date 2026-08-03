@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# Called by dnsmasq on DHCP events
+# Args: <action> <mac> <ip> <hostname>
+# action: add | del | old
+
+ACTION="$1"
+MAC="$(echo "$2" | tr 'a-f' 'A-F')"
+IP="$3"
+HOSTNAME="${4:-unknown}"
+TIMESTAMP="$(date +%s)"
+
+HISTORY_DIR="/tmp/clientmanager"
+HISTORY_FILE="$HISTORY_DIR/history.json"
+LOGFILE="$HISTORY_DIR/history.log"
+MAX_EVENTS=500
+
+mkdir -p "$HISTORY_DIR"
+
+# Only log add and del events
+[ "$ACTION" = "old" ] && exit 0
+
+# Build new event JSON line
+EVENT="{\"action\":\"$ACTION\",\"mac\":\"$MAC\",\"ip\":\"$IP\",\"hostname\":\"$HOSTNAME\",\"timestamp\":$TIMESTAMP}"
+
+# Prepend event to log (newest first)
+if [ -f "$LOGFILE" ]; then
+	TMP="$LOGFILE.tmp"
+	{
+		echo "$EVENT"
+		head -n $((MAX_EVENTS - 1)) "$LOGFILE"
+	} > "$TMP"
+	mv "$TMP" "$LOGFILE"
+else
+	echo "$EVENT" > "$LOGFILE"
+fi
+
+# Rebuild JSON file from log (already in newest-first order)
+{
+	printf '{"events":['
+	awk 'NR>1{printf ","} {printf "%s",$0}' "$LOGFILE"
+	printf ']}'
+} > "$HISTORY_FILE.tmp"
+mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
+
+exit 0

@@ -1,0 +1,8 @@
+#!/bin/sh
+# luci-app-client-manager: first-install defaults
+
+[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
+mkdir -p /tmp/clientmanager
+chmod +x /usr/libexec/rpcd/clientmanager
+
+exit 0
