@@ -56,17 +56,9 @@
 			"path": "clientmanager/groups"
 		}
 	},
-	"admin/clientmanager/history": {
-		"title": "History",
-		"order": 7,
-		"action": {
-			"type": "view",
-			"path": "clientmanager/history"
-		}
-	},
 	"admin/clientmanager/statistics": {
 		"title": "Statistics",
-		"order": 8,
+		"order": 7,
 		"action": {
 			"type": "view",
 			"path": "clientmanager/statistics"

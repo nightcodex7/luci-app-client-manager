@@ -24,7 +24,6 @@
 - **Firewall Blocking**: Block or unblock internet access per device using OpenWrt `fw4` UCI firewall rules.
 - **Bandwidth Monitoring**: Track real-time upload and download byte counters using `conntrack`.
 - **Traffic Statistics**: Daily and monthly historical traffic reports integrated with `vnstat` / `vnstat2`.
-- **Live Connection Log**: Real-time DHCP join/leave event tracking via a lightweight `dnsmasq` script hook.
 - **Device Grouping**: Categorize clients into groups for batch network management.
 
 ---
@@ -96,7 +95,7 @@ scp -r root/* root@192.168.1.1:/
 scp -r htdocs/* root@192.168.1.1:/www/
 
 # Set permissions and run initial setup
-ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /usr/libexec/clientmanager-dhcp-hook /etc/uci-defaults/luci-app-client-manager && /etc/uci-defaults/luci-app-client-manager"
+ssh root@192.168.1.1 "chmod +x /usr/libexec/rpcd/luci.clientmanager /etc/uci-defaults/luci-app-client-manager && /etc/uci-defaults/luci-app-client-manager"
 
 # Clear LuCI cache and restart services
 ssh root@192.168.1.1 "rm -f /tmp/luci-indexcache /tmp/luci-modulecache* && /etc/init.d/rpcd restart && sleep 1 && /etc/init.d/uhttpd restart"
@@ -124,7 +123,7 @@ make package/luci-app-client-manager/compile
 
 ## Uninstallation
 
-To remove the application, configuration hooks, and clear LuCI caches:
+To remove the application and clear LuCI caches:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/nightcodex7/luci-app-client-manager/main/uninstall.sh | sh
@@ -193,7 +192,6 @@ luci-app-client-manager/
 │   │       └── luci-app-client-manager
 │   └── usr/
 │       ├── libexec/
-│       │   ├── clientmanager-dhcp-hook
 │       │   └── rpcd/
 │       │       └── luci.clientmanager
 │       └── share/
@@ -213,7 +211,6 @@ luci-app-client-manager/
                     ├── details.js
                     ├── firewall.js
                     ├── groups.js
-                    ├── history.js
                     ├── statistics.js
                     └── wifi.js
 ```

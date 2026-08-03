@@ -18,7 +18,6 @@ cat <<'EOF'
 	"setGroup": { "id": "", "name": "", "description": "", "block_internet": "0" },
 	"deleteGroup": { "id": "" },
 	"assignGroup": { "mac": "", "group": "", "action": "" },
-	"getHistory": {},
 	"getStatistics": {},
 	"startVnstat": {}
 }
@@ -803,14 +802,6 @@ if [ "$1" = "call" ]; then
 			echo '{"success":true}'
 			;;
 
-		getHistory)
-			if [ -f /tmp/clientmanager/history.json ]; then
-				cat /tmp/clientmanager/history.json
-			else
-				echo '{"events":[]}'
-			fi
-			;;
-
 		getStatistics)
 			if ! command -v vnstat >/dev/null 2>&1; then
 				echo '{"available":false,"reason":"not_installed"}'
@@ -821,23 +812,41 @@ if [ "$1" = "call" ]; then
 				/etc/init.d/vnstat status >/dev/null 2>&1 || /etc/init.d/vnstat start >/dev/null 2>&1 &
 			fi
 
-			VNSTAT=""
-			VNSTAT=$(vnstat --json 2>/dev/null || true)
-			[ -z "$VNSTAT" ] && VNSTAT=$(vnstat --json 1 2>/dev/null || true)
-			[ -z "$VNSTAT" ] && VNSTAT=$(vnstat --json d 2>/dev/null || true)
+			VNSTAT=$(vnstat --json 2>/dev/null || vnstat -q --json 2>/dev/null || true)
 
 			FIRST_CHAR=$(echo "$VNSTAT" | awk '{print substr($0,1,1)}')
 			if [ "$FIRST_CHAR" = "{" ]; then
 				echo "{\"available\":true,\"source\":\"vnstat\",\"data\":$VNSTAT}"
 			else
-				echo '{"available":false,"reason":"service_stopped"}'
+				for iface in br-lan eth0 wan eth1; do
+					if [ -d "/sys/class/net/$iface" ]; then
+						vnstat --add -i "$iface" >/dev/null 2>&1 || true
+					fi
+				done
+				vnstat -u >/dev/null 2>&1 || true
+				sleep 1
+				VNSTAT=$(vnstat --json 2>/dev/null || vnstat -q --json 2>/dev/null || true)
+				FIRST_CHAR=$(echo "$VNSTAT" | awk '{print substr($0,1,1)}')
+				if [ "$FIRST_CHAR" = "{" ]; then
+					echo "{\"available\":true,\"source\":\"vnstat\",\"data\":$VNSTAT}"
+				else
+					echo '{"available":false,"reason":"service_stopped"}'
+				fi
 			fi
 			;;
 
 		startVnstat)
 			if [ -x /etc/init.d/vnstat ]; then
 				/etc/init.d/vnstat enable >/dev/null 2>&1 || true
-				/etc/init.d/vnstat start >/dev/null 2>&1 || true
+				/etc/init.d/vnstat start >/dev/null 2>&1 || /etc/init.d/vnstat restart >/dev/null 2>&1 || true
+			fi
+			if command -v vnstat >/dev/null 2>&1; then
+				for iface in br-lan eth0 wan eth1; do
+					if [ -d "/sys/class/net/$iface" ]; then
+						vnstat --add -i "$iface" >/dev/null 2>&1 || true
+					fi
+				done
+				vnstat -u >/dev/null 2>&1 || true
 			fi
 			echo '{"success":true}'
 			;;
