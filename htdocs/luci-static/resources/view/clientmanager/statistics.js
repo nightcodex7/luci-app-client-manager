@@ -70,13 +70,13 @@ return view.extend({
 				E('div', { 'class': 'cbi-section',
 					'style': 'text-align:center;padding:32px;' }, [
 					E('p', { 'style': 'font-size:1.2em;opacity:0.6;' },
-						_('📊 Statistics not available')),
+						_('Statistics not available')),
 					E('p', {},
 						_('Install vnstat to enable traffic statistics:')),
 					E('code', { 'style': 'display:block;margin:12px auto;' +
 						'padding:8px 16px;background:var(--cbi-section-bg,' +
-						'#f5f5f5);border-radius:4px;max-width:400px;' },
-						'opkg install vnstat2')
+						'#f5f5f5);border-radius:4px;max-width:500px;' },
+						'apk add vnstat2  (or: opkg update && opkg install vnstat2)')
 				])
 			);
 			return container;

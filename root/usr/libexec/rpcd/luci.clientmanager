@@ -36,43 +36,150 @@ if [ "$1" = "call" ]; then
 			;;
 
 		getClients)
-			# Fast, robust client aggregation in pure shell & awk
 			TMP_FILE="/tmp/cm_clients_$$.json"
 
-			awk '
+			TMP_WL="/tmp/cm_wl_$$.txt"
+			rm -f "$TMP_WL"
+			if command -v ubus >/dev/null 2>&1; then
+				DEVS=$(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]' 2>/dev/null || true)
+				for d in $DEVS; do
+					ubus call iwinfo assoclist "{\"device\":\"$d\"}" 2>/dev/null | \
+						jsonfilter -e "@.results[*]" -e "mac=@.mac" -e "sig=@.signal" -e "noise=@.noise" 2>/dev/null | \
+						awk -v dev="$d" '
+							/mac=/ { mac=toupper(substr($0, 5)) }
+							/sig=/ { sig=substr($0, 5) }
+							/noise=/ { noise=substr($0, 7) }
+							{
+								if (mac && sig) {
+									print mac " " dev " " sig " " noise
+									mac=""; sig=""; noise=""
+								}
+							}
+						' >> "$TMP_WL" 2>/dev/null || true
+				done
+			fi
+
+			TMP_UCI="/tmp/cm_uci_$$.txt"
+			rm -f "$TMP_UCI"
+			if command -v uci >/dev/null 2>&1; then
+				for s in $(uci -q show dhcp 2>/dev/null | grep "=host" | cut -d. -f2 | cut -d= -f1); do
+					umac=$(uci -q get dhcp.$s.mac 2>/dev/null | tr 'a-z' 'A-Z' | awk '{print $1}')
+					uip=$(uci -q get dhcp.$s.ip 2>/dev/null || true)
+					uname=$(uci -q get dhcp.$s.name 2>/dev/null || true)
+					if [ -n "$umac" ]; then
+						echo "$umac $uip $uname" >> "$TMP_UCI"
+					fi
+				done
+			fi
+
+			TMP_META="/tmp/cm_meta_$$.txt"
+			rm -f "$TMP_META"
+			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
+				for s in $(uci -q show clientmanager 2>/dev/null | grep "=client" | cut -d. -f2 | cut -d= -f1); do
+					mmac=$(uci -q get clientmanager.$s.mac 2>/dev/null | tr 'a-z' 'A-Z')
+					mname=$(uci -q get clientmanager.$s.name 2>/dev/null || true)
+					mowner=$(uci -q get clientmanager.$s.owner 2>/dev/null || true)
+					micon=$(uci -q get clientmanager.$s.icon 2>/dev/null || true)
+					if [ -n "$mmac" ]; then
+						echo "$mmac | $mname | $mowner | $micon" >> "$TMP_META"
+					fi
+				done
+			fi
+
+			LEASE_FILE="/tmp/dhcp.leases"
+			ARP_FILE="/proc/net/arp"
+			[ -f "$LEASE_FILE" ] || LEASE_FILE="/dev/null"
+			[ -f "$ARP_FILE" ] || ARP_FILE="/dev/null"
+
+			awk -v wl_file="$TMP_WL" -v uci_file="$TMP_UCI" -v meta_file="$TMP_META" '
 			BEGIN {
 				print "{\"clients\":["
 				first = 1
+
+				if (wl_file != "") {
+					while ((getline < wl_file) > 0) {
+						m = toupper($1)
+						if (m != "") {
+							wl_if[m] = $2
+							wl_sig[m] = $3
+							wl_noise[m] = $4
+							wl_is[m] = 1
+							seen[m] = 1
+						}
+					}
+					close(wl_file)
+				}
+
+				if (uci_file != "") {
+					while ((getline < uci_file) > 0) {
+						m = toupper($1)
+						if (m != "") {
+							if ($2 != "") ip[m] = $2
+							if ($3 != "") host[m] = $3
+							seen[m] = 1
+						}
+					}
+					close(uci_file)
+				}
+
+				if (meta_file != "") {
+					while ((getline < meta_file) > 0) {
+						n = split($0, parts, "|")
+						if (n >= 1) {
+							m = toupper(parts[1])
+							gsub(/^[ \t]+|[ \t]+$/, "", m)
+							if (m != "") {
+								if (n >= 2) { gsub(/^[ \t]+|[ \t]+$/, "", parts[2]); meta_name[m] = parts[2] }
+								if (n >= 3) { gsub(/^[ \t]+|[ \t]+$/, "", parts[3]); meta_owner[m] = parts[3] }
+								if (n >= 4) { gsub(/^[ \t]+|[ \t]+$/, "", parts[4]); meta_icon[m] = parts[4] }
+								seen[m] = 1
+							}
+						}
+					}
+					close(meta_file)
+				}
 			}
-			# Load DHCP leases
-			FILENAME ~ /dhcp\.leases$/ {
+
+			NR == FNR {
 				mac = toupper($2)
-				if (mac ~ /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/) {
+				if (length(mac) == 17 && mac ~ /^[0-9A-FA-F:]+$/) {
 					ip[mac] = $3
-					host[mac] = ($4 != "*") ? $4 : ""
-					exp[mac] = $1
+					if ($4 != "*") host[mac] = $4
+					lease_exp[mac] = $1
 					seen[mac] = 1
 				}
+				next
 			}
-			# Load ARP table
-			FILENAME ~ /arp$/ {
+
+			{
 				mac = toupper($4)
-				if (mac ~ /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/ && mac != "00:00:00:00:00:00" && $3 != "0x0") {
+				if (length(mac) == 17 && mac ~ /^[0-9A-FA-F:]+$/ && mac != "00:00:00:00:00:00" && $3 != "0x0") {
 					if (!ip[mac]) ip[mac] = $1
-					iface[mac] = $6
+					if (!iface[mac]) iface[mac] = $6
 					seen[mac] = 1
 				}
 			}
+
 			END {
 				for (m in seen) {
+					if (m == "" || m == "00:00:00:00:00:00") continue
 					if (!first) printf ","
 					first = 0
-					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"%s\",\"expires\":%s,\"interface\":\"%s\",\"wireless\":false}",
-						m, ip[m], host[m], (exp[m] ? exp[m] : "0"), iface[m]
+
+					if_name = wl_if[m] ? wl_if[m] : (iface[m] ? iface[m] : "")
+					is_wl = wl_is[m] ? "true" : "false"
+					sig_str = wl_sig[m] ? wl_sig[m] : "null"
+					noise_str = wl_noise[m] ? wl_noise[m] : "null"
+
+					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"owner\":\"%s\",\"icon\":\"%s\",\"groups\":[],\"expires\":%s,\"interface\":\"%s\",\"wireless\":%s,\"signal\":%s,\"noise\":%s}",
+						m, ip[m], host[m], meta_name[m], meta_owner[m], meta_icon[m],
+						(lease_exp[m] ? lease_exp[m] : "0"), if_name, is_wl, sig_str, noise_str
 				}
 				print "]}"
 			}
-			' /tmp/dhcp.leases /proc/net/arp > "$TMP_FILE" 2>/dev/null
+			' "$LEASE_FILE" "$ARP_FILE" > "$TMP_FILE" 2>/dev/null
+
+			rm -f "$TMP_WL" "$TMP_UCI" "$TMP_META"
 
 			if [ -s "$TMP_FILE" ]; then
 				cat "$TMP_FILE"
