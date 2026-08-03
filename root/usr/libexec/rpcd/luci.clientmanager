@@ -1,644 +1,435 @@
-#!/usr/bin/lua
+#!/bin/sh
 
----------------------------------------------------------------------
--- Robust JSON module loader
----------------------------------------------------------------------
-local json = {}
-local raw_json = nil
+# Handle rpcd "list" call
+if [ "$1" = "list" ]; then
+cat <<'EOF'
+{
+	"getStatus": {},
+	"getClients": {},
+	"getClientDetail": { "mac": "" },
+	"setClientMeta": { "mac": "", "name": "", "owner": "", "notes": "", "icon": "" },
+	"getWifiInterfaces": {},
+	"setMacFilter": { "section": "", "mac": "", "action": "" },
+	"setFirewallRule": { "mac": "", "action": "" },
+	"getFirewallRules": {},
+	"deleteFirewallRule": { "mac": "" },
+	"getBandwidth": {},
+	"getGroups": {},
+	"setGroup": { "id": "", "name": "", "description": "", "block_internet": "0" },
+	"deleteGroup": { "id": "" },
+	"assignGroup": { "mac": "", "group": "", "action": "" },
+	"getHistory": {},
+	"getStatistics": {}
+}
+EOF
+	exit 0
+fi
 
-if pcall(require, "luci.jsonc") then
-	raw_json = require "luci.jsonc"
-	json.parse = function(str)
-		if not str or str == "" then return nil end
-		return raw_json.parse(str)
-	end
-	json.stringify = function(obj)
-		return raw_json.stringify(obj or {})
-	end
-elseif pcall(require, "cjson") then
-	raw_json = require "cjson"
-	json.parse = function(str)
-		if not str or str == "" then return nil end
-		local ok, res = pcall(raw_json.decode, str)
-		return ok and res or nil
-	end
-	json.stringify = function(obj)
-		local ok, res = pcall(raw_json.encode, obj or {})
-		return ok and res or "{}"
-	end
-elseif pcall(require, "luci.json") then
-	raw_json = require "luci.json"
-	json.parse = function(str)
-		if not str or str == "" then return nil end
-		local ok, res = pcall(raw_json.decode, str)
-		return ok and res or nil
-	end
-	json.stringify = function(obj)
-		local ok, res = pcall(raw_json.encode, obj or {})
-		return ok and res or "{}"
-	end
-else
-	json.parse = function(str) return nil end
-	json.stringify = function(obj) return "{}" end
-end
+# Handle rpcd "call"
+if [ "$1" = "call" ]; then
+	METHOD="$2"
+	INPUT=$(cat)
 
----------------------------------------------------------------------
--- Robust UCI loader (compatible with OpenWrt 21.02, 23.05, 24.10, 25.12)
----------------------------------------------------------------------
-local uci_mod = nil
-local function uci_cursor()
-	if not uci_mod then
-		local ok, u = pcall(require, "uci")
-		if ok then
-			uci_mod = u
-		else
-			ok, u = pcall(require, "luci.model.uci")
-			if ok then uci_mod = u end
-		end
-	end
-	if uci_mod and uci_mod.cursor then
-		local ok, c = pcall(uci_mod.cursor)
-		if ok and c then return c end
-	end
-	-- Failsafe dummy cursor
-	return {
-		foreach = function() end,
-		get = function() return nil end,
-		set = function() end,
-		add = function() return "sec" end,
-		delete = function() end,
-		commit = function() end,
-		add_list = function() end,
-		del_list = function() end
-	}
-end
+	case "$METHOD" in
+		getStatus)
+			echo '{"version":"0.1.0"}'
+			;;
 
----------------------------------------------------------------------
--- Utilities
----------------------------------------------------------------------
+		getClients)
+			# Fast, robust client aggregation in pure shell & awk
+			TMP_FILE="/tmp/cm_clients_$$.json"
 
-local function read_file(path)
-	local f = io.open(path, "r")
-	if not f then return nil end
-	local c = f:read("*a")
-	f:close()
-	return c
-end
-
-local function exec(cmd)
-	local p = io.popen(cmd .. " 2>/dev/null", "r")
-	if not p then return "" end
-	local o = p:read("*a")
-	p:close()
-	return o or ""
-end
-
-local function exec_json(cmd)
-	local raw = exec(cmd)
-	if raw == "" then return nil end
-	return json.parse(raw)
-end
-
-local function ip_to_num(ip)
-	if not ip or ip == "" then return 0 end
-	local a, b, c, d = ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")
-	if not a then return 0 end
-	return tonumber(a) * 16777216 + tonumber(b) * 65536 +
-	       tonumber(c) * 256 + tonumber(d)
-end
-
----------------------------------------------------------------------
--- Data collection
----------------------------------------------------------------------
-
-local function get_dhcp_leases()
-	local leases = {}
-	local raw = read_file("/tmp/dhcp.leases")
-	if not raw then return leases end
-	for line in raw:gmatch("[^\n]+") do
-		local ts, mac, ip, host = line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
-		if mac then
-			mac = mac:upper()
-			leases[mac] = {
-				mac = mac, ip = ip,
-				hostname = (host ~= "*") and host or nil,
-				expires = tonumber(ts) or 0
+			awk '
+			BEGIN {
+				print "{\"clients\":["
+				first = 1
 			}
-		end
-	end
-	return leases
-end
-
-local function get_arp_entries()
-	local entries = {}
-	local raw = read_file("/proc/net/arp")
-	if not raw then return entries end
-	local skip = true
-	for line in raw:gmatch("[^\n]+") do
-		if skip then skip = false else
-			local ip, hw, flags, mac, mask, dev =
-				line:match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
-			if mac and mac ~= "00:00:00:00:00:00" and flags ~= "0x0" then
-				mac = mac:upper()
-				entries[mac] = { ip = ip, interface = dev }
-			end
-		end
-	end
-	return entries
-end
-
-local function get_wireless_assoc()
-	local wl = {}
-	local devs = exec_json("ubus call iwinfo devices")
-	if not devs or not devs.devices then return wl end
-	for _, dev in ipairs(devs.devices) do
-		if dev:match("^[%w%-_%.]+$") then
-			local al = exec_json(
-				"ubus call iwinfo assoclist '{\"device\":\"" .. dev .. "\"}'")
-			if al and al.results then
-				for _, c in ipairs(al.results) do
-					if c.mac then
-						wl[c.mac:upper()] = {
-							interface = dev,
-							signal = c.signal,
-							noise = c.noise,
-							wireless = true
-						}
-					end
-				end
-			end
-		end
-	end
-	return wl
-end
-
-local function load_meta()
-	local cur = uci_cursor()
-	local meta = {}
-	pcall(function()
-		cur:foreach("clientmanager", "client", function(s)
-			if s.mac then
-				meta[s.mac:upper()] = {
-					name = s.name or "",
-					owner = s.owner or "",
-					notes = s.notes or "",
-					icon = s.icon or "",
-					groups = s.groups or {}
-				}
-			end
-		end)
-	end)
-	return meta
-end
-
----------------------------------------------------------------------
--- RPC methods
----------------------------------------------------------------------
-
-local methods = {
-
-	getStatus = {
-		args = {},
-		call = function()
-			return { version = "0.1.0" }
-		end
-	},
-
-	getClients = {
-		args = {},
-		call = function()
-			local leases = get_dhcp_leases()
-			local arp = get_arp_entries()
-			local wireless = get_wireless_assoc()
-			local meta = load_meta()
-
-			local seen = {}
-			local clients = {}
-
-			for _, src in ipairs({ leases, arp, wireless }) do
-				for mac in pairs(src) do seen[mac] = true end
-			end
-
-			for mac in pairs(seen) do
-				local l = leases[mac] or {}
-				local a = arp[mac] or {}
-				local w = wireless[mac] or {}
-				local m = meta[mac] or {}
-
-				clients[#clients + 1] = {
-					mac = mac,
-					ip = l.ip or a.ip or "",
-					hostname = l.hostname or "",
-					name = m.name or "",
-					owner = m.owner or "",
-					icon = m.icon or "",
-					groups = m.groups or {},
-					expires = l.expires or 0,
-					interface = w.interface or a.interface or "",
-					wireless = w.wireless or false,
-					signal = w.signal,
-					noise = w.noise
-				}
-			end
-
-			table.sort(clients, function(x, y)
-				return ip_to_num(x.ip) < ip_to_num(y.ip)
-			end)
-
-			return { clients = clients }
-		end
-	},
-
-	getClientDetail = {
-		args = { mac = "" },
-		call = function(args)
-			if not args.mac or args.mac == "" then
-				return { error = "MAC address required" }
-			end
-			local mac = args.mac:upper()
-			local leases = get_dhcp_leases()
-			local arp = get_arp_entries()
-			local wireless = get_wireless_assoc()
-			local meta = load_meta()
-
-			local l = leases[mac] or {}
-			local a = arp[mac] or {}
-			local w = wireless[mac] or {}
-			local m = meta[mac] or {}
-
-			return {
-				client = {
-					mac = mac,
-					ip = l.ip or a.ip or "",
-					hostname = l.hostname or "",
-					name = m.name or "",
-					owner = m.owner or "",
-					notes = m.notes or "",
-					icon = m.icon or "",
-					groups = m.groups or {},
-					expires = l.expires or 0,
-					interface = w.interface or a.interface or "",
-					wireless = w.wireless or false,
-					signal = w.signal,
-					noise = w.noise
+			# Load DHCP leases
+			FILENAME ~ /dhcp\.leases$/ {
+				mac = toupper($2)
+				if (mac ~ /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/) {
+					ip[mac] = $3
+					host[mac] = ($4 != "*") ? $4 : ""
+					exp[mac] = $1
+					seen[mac] = 1
 				}
 			}
-		end
-	},
-
-	setClientMeta = {
-		args = { mac = "", name = "", owner = "", notes = "", icon = "" },
-		call = function(args)
-			if not args.mac or args.mac == "" then
-				return { error = "MAC address required" }
-			end
-			local mac = args.mac:upper()
-			local cur = uci_cursor()
-			local sid = nil
-
-			cur:foreach("clientmanager", "client", function(s)
-				if s.mac and s.mac:upper() == mac then
-					sid = s[".name"]
-				end
-			end)
-
-			if not sid then
-				sid = cur:add("clientmanager", "client")
-				cur:set("clientmanager", sid, "mac", mac)
-			end
-
-			if args.name then cur:set("clientmanager", sid, "name", args.name) end
-			if args.owner then cur:set("clientmanager", sid, "owner", args.owner) end
-			if args.notes then cur:set("clientmanager", sid, "notes", args.notes) end
-			if args.icon then cur:set("clientmanager", sid, "icon", args.icon) end
-
-			cur:commit("clientmanager")
-			return { success = true }
-		end
-	},
-
-	getWifiInterfaces = {
-		args = {},
-		call = function()
-			local cur = uci_cursor()
-			local ifaces = {}
-			cur:foreach("wireless", "wifi-iface", function(s)
-				local entry = {
-					section = s[".name"],
-					device = s.device or "",
-					ssid = s.ssid or "",
-					mode = s.mode or "ap",
-					macfilter = s.macfilter or "disable",
-					maclist = s.maclist or {},
-					disabled = s.disabled or "0"
+			# Load ARP table
+			FILENAME ~ /arp$/ {
+				mac = toupper($4)
+				if (mac ~ /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/ && mac != "00:00:00:00:00:00" && $3 != "0x0") {
+					if (!ip[mac]) ip[mac] = $1
+					iface[mac] = $6
+					seen[mac] = 1
 				}
-				if entry.mode == "ap" then
-					ifaces[#ifaces + 1] = entry
-				end
-			end)
-			return { interfaces = ifaces }
-		end
-	},
-
-	setMacFilter = {
-		args = { section = "", mac = "", action = "" },
-		call = function(args)
-			if not args.section or not args.mac or not args.action then
-				return { error = "section, mac, and action required" }
-			end
-
-			local mac = args.mac:upper()
-			local cur = uci_cursor()
-
-			if args.action == "add" then
-				local current = cur:get("wireless", args.section, "macfilter")
-				if not current or current == "disable" then
-					cur:set("wireless", args.section, "macfilter", "allow")
-				end
-				cur:del_list("wireless", args.section, "maclist", mac)
-				cur:add_list("wireless", args.section, "maclist", mac)
-			elseif args.action == "remove" then
-				cur:del_list("wireless", args.section, "maclist", mac)
-			end
-
-			cur:commit("wireless")
-			os.execute("wifi reload &")
-			return { success = true }
-		end
-	},
-
-	setFirewallRule = {
-		args = { mac = "", action = "" },
-		call = function(args)
-			if not args.mac or not args.action then
-				return { error = "mac and action required" }
-			end
-
-			local mac = args.mac:upper()
-			local cur = uci_cursor()
-			local rule_name = "cm_" .. mac:gsub(":", "")
-
-			local to_delete = {}
-			cur:foreach("firewall", "rule", function(s)
-				if s.name == rule_name then
-					to_delete[#to_delete + 1] = s[".name"]
-				end
-			end)
-			for i = #to_delete, 1, -1 do
-				cur:delete("firewall", to_delete[i])
-			end
-
-			if args.action == "block" then
-				local sid = cur:add("firewall", "rule")
-				cur:set("firewall", sid, "name", rule_name)
-				cur:set("firewall", sid, "src", "lan")
-				cur:set("firewall", sid, "dest", "wan")
-				cur:set("firewall", sid, "src_mac", mac)
-				cur:set("firewall", sid, "target", "REJECT")
-				cur:set("firewall", sid, "comment",
-					"Client Manager: block " .. mac)
-			end
-
-			cur:commit("firewall")
-			os.execute("/etc/init.d/firewall reload &")
-			return { success = true }
-		end
-	},
-
-	getFirewallRules = {
-		args = {},
-		call = function()
-			local cur = uci_cursor()
-			local rules = {}
-			cur:foreach("firewall", "rule", function(s)
-				if s.name and s.name:match("^cm_") then
-					rules[#rules + 1] = {
-						section = s[".name"],
-						name = s.name,
-						src_mac = s.src_mac or "",
-						target = s.target or "",
-						comment = s.comment or ""
-					}
-				end
-			end)
-			return { rules = rules }
-		end
-	},
-
-	deleteFirewallRule = {
-		args = { mac = "" },
-		call = function(args)
-			if not args.mac then return { error = "mac required" } end
-			local rule_name = "cm_" .. args.mac:upper():gsub(":", "")
-			local cur = uci_cursor()
-			local to_delete = {}
-			cur:foreach("firewall", "rule", function(s)
-				if s.name == rule_name then
-					to_delete[#to_delete + 1] = s[".name"]
-				end
-			end)
-			for i = #to_delete, 1, -1 do
-				cur:delete("firewall", to_delete[i])
-			end
-			cur:commit("firewall")
-			os.execute("/etc/init.d/firewall reload &")
-			return { success = true }
-		end
-	},
-
-	getBandwidth = {
-		args = {},
-		call = function()
-			local clients = {}
-			local ct = exec("conntrack -L -o extended 2>/dev/null")
-			if ct ~= "" then
-				local by_ip = {}
-				for line in ct:gmatch("[^\n]+") do
-					local src = line:match("src=(%d+%.%d+%.%d+%.%d+)")
-					if src then
-						local b1, b2 = line:match("bytes=(%d+).-bytes=(%d+)")
-						if b1 then
-							if not by_ip[src] then
-								by_ip[src] = { tx = 0, rx = 0 }
-							end
-							by_ip[src].tx = by_ip[src].tx + tonumber(b1)
-							by_ip[src].rx = by_ip[src].rx + tonumber(b2)
-						end
-					end
-				end
-				for ip, d in pairs(by_ip) do
-					clients[#clients + 1] = {
-						ip = ip,
-						tx = d.tx,
-						rx = d.rx,
-						bytes = d.tx + d.rx
-					}
-				end
-			end
-			table.sort(clients, function(a, b)
-				return a.bytes > b.bytes
-			end)
-			return { bandwidth = clients }
-		end
-	},
-
-	getGroups = {
-		args = {},
-		call = function()
-			local cur = uci_cursor()
-			local groups = {}
-			cur:foreach("clientmanager", "group", function(s)
-				groups[#groups + 1] = {
-					section = s[".name"],
-					id = s.id or s[".name"],
-					name = s.name or "",
-					description = s.description or "",
-					block_internet = s.block_internet or "0"
+			}
+			END {
+				for (m in seen) {
+					if (!first) printf ","
+					first = 0
+					printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"%s\",\"expires\":%s,\"interface\":\"%s\",\"wireless\":false}",
+						m, ip[m], host[m], (exp[m] ? exp[m] : "0"), iface[m]
 				}
-			end)
-			return { groups = groups }
-		end
-	},
+				print "]}"
+			}
+			' /tmp/dhcp.leases /proc/net/arp > "$TMP_FILE" 2>/dev/null
 
-	setGroup = {
-		args = { id = "", name = "", description = "", block_internet = "0" },
-		call = function(args)
-			if not args.id or args.id == "" then
-				return { error = "group id required" }
-			end
-			local cur = uci_cursor()
-			local sid = nil
+			if [ -s "$TMP_FILE" ]; then
+				cat "$TMP_FILE"
+				rm -f "$TMP_FILE"
+			else
+				echo '{"clients":[]}'
+			fi
+			;;
 
-			cur:foreach("clientmanager", "group", function(s)
-				if (s.id or s[".name"]) == args.id then
-					sid = s[".name"]
-				end
-			end)
+		getClientDetail)
+			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
+			if [ -z "$MAC" ]; then
+				echo '{"error":"MAC address required"}'
+				exit 0
+			fi
 
-			if not sid then
-				sid = cur:add("clientmanager", "group")
-				cur:set("clientmanager", sid, "id", args.id)
-			end
+			IP=""
+			HOST=""
+			EXP="0"
+			IFACE=""
 
-			if args.name then
-				cur:set("clientmanager", sid, "name", args.name)
-			end
-			if args.description then
-				cur:set("clientmanager", sid, "description", args.description)
-			end
-			if args.block_internet then
-				cur:set("clientmanager", sid, "block_internet",
-					args.block_internet)
-			end
+			if [ -f /tmp/dhcp.leases ]; then
+				LINE=$(grep -i "$MAC" /tmp/dhcp.leases | head -n 1)
+				if [ -n "$LINE" ]; then
+					EXP=$(echo "$LINE" | awk '{print $1}')
+					IP=$(echo "$LINE" | awk '{print $3}')
+					H=$(echo "$LINE" | awk '{print $4}')
+					[ "$H" != "*" ] && HOST="$H"
+				fi
+			fi
 
-			cur:commit("clientmanager")
-			return { success = true }
-		end
-	},
+			if [ -z "$IP" ] && [ -f /proc/net/arp ]; then
+				LINE=$(grep -i "$MAC" /proc/net/arp | head -n 1)
+				if [ -n "$LINE" ]; then
+					IP=$(echo "$LINE" | awk '{print $1}')
+					IFACE=$(echo "$LINE" | awk '{print $6}')
+				fi
+			fi
 
-	deleteGroup = {
-		args = { id = "" },
-		call = function(args)
-			if not args.id then return { error = "group id required" } end
-			local cur = uci_cursor()
-			local to_delete = {}
-			cur:foreach("clientmanager", "group", function(s)
-				if (s.id or s[".name"]) == args.id then
-					to_delete[#to_delete + 1] = s[".name"]
-				end
-			end)
-			for i = #to_delete, 1, -1 do
-				cur:delete("clientmanager", to_delete[i])
-			end
-			cur:commit("clientmanager")
-			return { success = true }
-		end
-	},
-
-	assignGroup = {
-		args = { mac = "", group = "", action = "" },
-		call = function(args)
-			if not args.mac or not args.group or not args.action then
-				return { error = "mac, group, and action required" }
-			end
-			local mac = args.mac:upper()
-			local cur = uci_cursor()
-			local sid = nil
-
-			cur:foreach("clientmanager", "client", function(s)
-				if s.mac and s.mac:upper() == mac then
-					sid = s[".name"]
-				end
-			end)
-
-			if not sid then
-				sid = cur:add("clientmanager", "client")
-				cur:set("clientmanager", sid, "mac", mac)
-			end
-
-			if args.action == "add" then
-				cur:del_list("clientmanager", sid, "groups", args.group)
-				cur:add_list("clientmanager", sid, "groups", args.group)
-			elseif args.action == "remove" then
-				cur:del_list("clientmanager", sid, "groups", args.group)
-			end
-
-			cur:commit("clientmanager")
-			return { success = true }
-		end
-	},
-
-	getHistory = {
-		args = {},
-		call = function()
-			local raw = read_file("/tmp/clientmanager/history.json")
-			if not raw then return { events = {} } end
-			local data = json.parse(raw)
-			if not data or not data.events then
-				return { events = {} }
-			end
-			return { events = data.events }
-		end
-	},
-
-	getStatistics = {
-		args = {},
-		call = function()
-			local stats = { available = false }
-			local vnstat = exec_json("vnstat --json 2>/dev/null")
-			if vnstat then
-				stats.available = true
-				stats.source = "vnstat"
-				stats.data = vnstat
-			end
-			return stats
-		end
+			cat <<EOF
+{
+	"client": {
+		"mac": "$MAC",
+		"ip": "$IP",
+		"hostname": "$HOST",
+		"name": "",
+		"owner": "",
+		"notes": "",
+		"icon": "",
+		"groups": [],
+		"expires": $EXP,
+		"interface": "$IFACE",
+		"wireless": false
 	}
 }
+EOF
+			;;
 
----------------------------------------------------------------------
--- rpcd exec protocol
----------------------------------------------------------------------
+		setClientMeta)
+			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
+			NAME=$(echo "$INPUT" | jsonfilter -e '@.name' 2>/dev/null)
+			OWNER=$(echo "$INPUT" | jsonfilter -e '@.owner' 2>/dev/null)
+			NOTES=$(echo "$INPUT" | jsonfilter -e '@.notes' 2>/dev/null)
+			ICON=$(echo "$INPUT" | jsonfilter -e '@.icon' 2>/dev/null)
 
-if arg[1] == "list" then
-	local rv = {}
-	for k, v in pairs(methods) do
-		rv[k] = v.args or {}
-	end
-	print(json.stringify(rv))
-elseif arg[1] == "call" then
-	local fn = methods[arg[2]]
-	if fn then
-		local raw_in = io.read("*a") or ""
-		local input = json.parse(raw_in) or {}
-		local ok, res = pcall(fn.call, input)
-		if ok and res then
-			print(json.stringify(res))
-		else
-			print(json.stringify({ error = "Execution failed" }))
-		end
-		collectgarbage("collect")
-	else
-		print(json.stringify({ error = "Method not found" }))
-	end
-end
+			if [ -z "$MAC" ]; then
+				echo '{"error":"MAC address required"}'
+				exit 0
+			fi
+
+			[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
+
+			SEC=""
+			for s in $(uci -q show clientmanager | grep "=client" | cut -d. -f2 | cut -d= -f1); do
+				smac=$(uci -q get clientmanager.$s.mac | tr 'a-z' 'A-Z')
+				if [ "$smac" = "$MAC" ]; then
+					SEC="$s"
+					break
+				fi
+			done
+
+			if [ -z "$SEC" ]; then
+				SEC=$(uci add clientmanager client)
+				uci set clientmanager.$SEC.mac="$MAC"
+			fi
+
+			[ -n "$NAME" ] && uci set clientmanager.$SEC.name="$NAME"
+			[ -n "$OWNER" ] && uci set clientmanager.$SEC.owner="$OWNER"
+			[ -n "$NOTES" ] && uci set clientmanager.$SEC.notes="$NOTES"
+			[ -n "$ICON" ] && uci set clientmanager.$SEC.icon="$ICON"
+
+			uci commit clientmanager
+			echo '{"success":true}'
+			;;
+
+		getWifiInterfaces)
+			IF_LIST="["
+			FIRST=1
+			if command -v uci >/dev/null 2>&1; then
+				for s in $(uci -q show wireless 2>/dev/null | grep "=wifi-iface" | cut -d. -f2 | cut -d= -f1); do
+					mode=$(uci -q get wireless.$s.mode 2>/dev/null || echo "ap")
+					if [ "$mode" = "ap" ]; then
+						dev=$(uci -q get wireless.$s.device 2>/dev/null || true)
+						ssid=$(uci -q get wireless.$s.ssid 2>/dev/null || true)
+						mf=$(uci -q get wireless.$s.macfilter 2>/dev/null || echo "disable")
+						dis=$(uci -q get wireless.$s.disabled 2>/dev/null || echo "0")
+						[ "$FIRST" -eq 0 ] && IF_LIST="${IF_LIST},"
+						FIRST=0
+						IF_LIST="${IF_LIST}{\"section\":\"$s\",\"device\":\"$dev\",\"ssid\":\"$ssid\",\"mode\":\"$mode\",\"macfilter\":\"$mf\",\"disabled\":\"$dis\"}"
+					fi
+				done
+			fi
+			IF_LIST="${IF_LIST}]"
+			echo "{\"interfaces\":$IF_LIST}"
+			;;
+
+		setMacFilter)
+			SEC=$(echo "$INPUT" | jsonfilter -e '@.section' 2>/dev/null)
+			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
+			ACT=$(echo "$INPUT" | jsonfilter -e '@.action' 2>/dev/null)
+
+			if [ -n "$SEC" ] && [ -n "$MAC" ]; then
+				if [ "$ACT" = "add" ]; then
+					uci set wireless.$SEC.macfilter='allow'
+					uci del_list wireless.$SEC.maclist="$MAC" 2>/dev/null || true
+					uci add_list wireless.$SEC.maclist="$MAC"
+				elif [ "$ACT" = "remove" ]; then
+					uci del_list wireless.$SEC.maclist="$MAC" 2>/dev/null || true
+				fi
+				uci commit wireless
+				wifi reload >/dev/null 2>&1 &
+			fi
+			echo '{"success":true}'
+			;;
+
+		setFirewallRule)
+			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
+			ACT=$(echo "$INPUT" | jsonfilter -e '@.action' 2>/dev/null)
+
+			if [ -n "$MAC" ]; then
+				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
+				RULE_NAME="cm_${CLEAN_MAC}"
+
+				# Remove existing rule with this name
+				for s in $(uci -q show firewall | grep "\.name='${RULE_NAME}'" | cut -d. -f2); do
+					uci delete firewall.$s 2>/dev/null || true
+				done
+
+				if [ "$ACT" = "block" ]; then
+					SID=$(uci add firewall rule)
+					uci set firewall.$SID.name="$RULE_NAME"
+					uci set firewall.$SID.src="lan"
+					uci set firewall.$SID.dest="wan"
+					uci set firewall.$SID.src_mac="$MAC"
+					uci set firewall.$SID.target="REJECT"
+					uci set firewall.$SID.comment="Client Manager: block $MAC"
+				fi
+				uci commit firewall
+				/etc/init.d/firewall reload >/dev/null 2>&1 &
+			fi
+			echo '{"success":true}'
+			;;
+
+		getFirewallRules)
+			RULES="["
+			FIRST=1
+			if command -v uci >/dev/null 2>&1; then
+				for s in $(uci -q show firewall 2>/dev/null | grep "=rule" | cut -d. -f2 | cut -d= -f1); do
+					rname=$(uci -q get firewall.$s.name 2>/dev/null || true)
+					case "$rname" in
+						cm_*)
+							smac=$(uci -q get firewall.$s.src_mac 2>/dev/null || true)
+							target=$(uci -q get firewall.$s.target 2>/dev/null || true)
+							comment=$(uci -q get firewall.$s.comment 2>/dev/null || true)
+							[ "$FIRST" -eq 0 ] && RULES="${RULES},"
+							FIRST=0
+							RULES="${RULES}{\"section\":\"$s\",\"name\":\"$rname\",\"src_mac\":\"$smac\",\"target\":\"$target\",\"comment\":\"$comment\"}"
+							;;
+					esac
+				done
+			fi
+			RULES="${RULES}]"
+			echo "{\"rules\":$RULES}"
+			;;
+
+		deleteFirewallRule)
+			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
+			if [ -n "$MAC" ]; then
+				CLEAN_MAC=$(echo "$MAC" | tr -d ':')
+				RULE_NAME="cm_${CLEAN_MAC}"
+				for s in $(uci -q show firewall | grep "\.name='${RULE_NAME}'" | cut -d. -f2); do
+					uci delete firewall.$s 2>/dev/null || true
+				done
+				uci commit firewall
+				/etc/init.d/firewall reload >/dev/null 2>&1 &
+			fi
+			echo '{"success":true}'
+			;;
+
+		getBandwidth)
+			CT=$(conntrack -L -o extended 2>/dev/null || true)
+			if [ -n "$CT" ]; then
+				TMP_BW="/tmp/cm_bw_$$.json"
+				echo "$CT" | awk '
+				BEGIN { print "{\"bandwidth\":[" ; first = 1 }
+				/src=/ {
+					# Extract first src IP and byte values
+					match($0, /src=([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/, ipm)
+					match($0, /bytes=([0-9]+).+bytes=([0-9]+)/, bm)
+					if (ipm[1] && bm[1] && bm[2]) {
+						tx[ipm[1]] += bm[1]
+						rx[ipm[1]] += bm[2]
+						seen[ipm[1]] = 1
+					}
+				}
+				END {
+					for (ip in seen) {
+						if (!first) printf ","
+						first = 0
+						tot = tx[ip] + rx[ip]
+						printf "{\"ip\":\"%s\",\"tx\":%s,\"rx\":%s,\"bytes\":%s}", ip, tx[ip], rx[ip], tot
+					}
+					print "]}"
+				}' > "$TMP_BW" 2>/dev/null
+
+				if [ -s "$TMP_BW" ]; then
+					cat "$TMP_BW"
+					rm -f "$TMP_BW"
+				else
+					echo '{"bandwidth":[]}'
+				fi
+			else
+				echo '{"bandwidth":[]}'
+			fi
+			;;
+
+		getGroups)
+			G_LIST="["
+			FIRST=1
+			if command -v uci >/dev/null 2>&1 && [ -f /etc/config/clientmanager ]; then
+				for s in $(uci -q show clientmanager 2>/dev/null | grep "=group" | cut -d. -f2 | cut -d= -f1); do
+					gid=$(uci -q get clientmanager.$s.id 2>/dev/null || echo "$s")
+					gname=$(uci -q get clientmanager.$s.name 2>/dev/null || true)
+					gdesc=$(uci -q get clientmanager.$s.description 2>/dev/null || true)
+					gblk=$(uci -q get clientmanager.$s.block_internet 2>/dev/null || echo "0")
+					[ "$FIRST" -eq 0 ] && G_LIST="${G_LIST},"
+					FIRST=0
+					G_LIST="${G_LIST}{\"section\":\"$s\",\"id\":\"$gid\",\"name\":\"$gname\",\"description\":\"$gdesc\",\"block_internet\":\"$gblk\"}"
+				done
+			fi
+			G_LIST="${G_LIST}]"
+			echo "{\"groups\":$G_LIST}"
+			;;
+
+		setGroup)
+			GID=$(echo "$INPUT" | jsonfilter -e '@.id' 2>/dev/null)
+			GNAME=$(echo "$INPUT" | jsonfilter -e '@.name' 2>/dev/null)
+			GDESC=$(echo "$INPUT" | jsonfilter -e '@.description' 2>/dev/null)
+			GBLK=$(echo "$INPUT" | jsonfilter -e '@.block_internet' 2>/dev/null)
+
+			if [ -z "$GID" ]; then
+				echo '{"error":"group id required"}'
+				exit 0
+			fi
+
+			[ -f /etc/config/clientmanager ] || touch /etc/config/clientmanager
+
+			SEC=""
+			for s in $(uci -q show clientmanager | grep "=group" | cut -d. -f2 | cut -d= -f1); do
+				sgid=$(uci -q get clientmanager.$s.id || echo "$s")
+				if [ "$sgid" = "$GID" ]; then
+					SEC="$s"
+					break
+				fi
+			done
+
+			if [ -z "$SEC" ]; then
+				SEC=$(uci add clientmanager group)
+				uci set clientmanager.$SEC.id="$GID"
+			fi
+
+			[ -n "$GNAME" ] && uci set clientmanager.$SEC.name="$GNAME"
+			[ -n "$GDESC" ] && uci set clientmanager.$SEC.description="$GDESC"
+			[ -n "$GBLK" ] && uci set clientmanager.$SEC.block_internet="$GBLK"
+
+			uci commit clientmanager
+			echo '{"success":true}'
+			;;
+
+		deleteGroup)
+			GID=$(echo "$INPUT" | jsonfilter -e '@.id' 2>/dev/null)
+			if [ -n "$GID" ]; then
+				for s in $(uci -q show clientmanager | grep "=group" | cut -d. -f2 | cut -d= -f1); do
+					sgid=$(uci -q get clientmanager.$s.id || echo "$s")
+					if [ "$sgid" = "$GID" ]; then
+						uci delete clientmanager.$s 2>/dev/null || true
+					fi
+				done
+				uci commit clientmanager
+			fi
+			echo '{"success":true}'
+			;;
+
+		assignGroup)
+			MAC=$(echo "$INPUT" | jsonfilter -e '@.mac' 2>/dev/null | tr 'a-z' 'A-Z')
+			GRP=$(echo "$INPUT" | jsonfilter -e '@.group' 2>/dev/null)
+			ACT=$(echo "$INPUT" | jsonfilter -e '@.action' 2>/dev/null)
+
+			if [ -n "$MAC" ] && [ -n "$GRP" ]; then
+				SEC=""
+				for s in $(uci -q show clientmanager | grep "=client" | cut -d. -f2 | cut -d= -f1); do
+					smac=$(uci -q get clientmanager.$s.mac | tr 'a-z' 'A-Z')
+					if [ "$smac" = "$MAC" ]; then
+						SEC="$s"
+						break
+					fi
+				done
+
+				if [ -z "$SEC" ]; then
+					SEC=$(uci add clientmanager client)
+					uci set clientmanager.$SEC.mac="$MAC"
+				fi
+
+				if [ "$ACT" = "add" ]; then
+					uci del_list clientmanager.$SEC.groups="$GRP" 2>/dev/null || true
+					uci add_list clientmanager.$SEC.groups="$GRP"
+				elif [ "$ACT" = "remove" ]; then
+					uci del_list clientmanager.$SEC.groups="$GRP" 2>/dev/null || true
+				fi
+				uci commit clientmanager
+			fi
+			echo '{"success":true}'
+			;;
+
+		getHistory)
+			if [ -f /tmp/clientmanager/history.json ]; then
+				cat /tmp/clientmanager/history.json
+			else
+				echo '{"events":[]}'
+			fi
+			;;
+
+		getStatistics)
+			VNSTAT=$(vnstat --json 2>/dev/null || true)
+			if [ -n "$VNSTAT" ]; then
+				echo "{\"available\":true,\"source\":\"vnstat\",\"data\":$VNSTAT}"
+			else
+				echo '{"available":false}'
+			fi
+			;;
+
+		*)
+			echo '{"error":"Method not found"}'
+			;;
+	esac
+	exit 0
+fi
+
+echo '{"error":"Invalid argument"}'
+exit 1
